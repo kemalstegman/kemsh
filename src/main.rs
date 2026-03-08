@@ -16,13 +16,36 @@ fn main() {
     stdout.flush().unwrap();
     let mut stdin_reader = BufReader::new(stdin().lock());
     let mut s = String::new();
+    let mut variable_environment = executor::VariableEnvironment::new();
+    variable_environment.push_scope();
     loop {
         stdin_reader.read_line(&mut s).unwrap();
         let char_vec: Vec<char> = s.chars().collect();
         match lexer::lex(char_vec.iter().copied().peekable()) {
             Ok(Some(v)) => {
                 println!("{v:?}");
-                break;
+                match parser::parse(v.into_iter().peekable()) {
+                    Err(e) => {
+                        println!("{e:?}");
+                        break;
+                    }
+                    Ok(None) => continue,
+                    Ok(Some(instructions)) => {
+                        s.clear();
+                        for instruction in instructions {
+                            match executor::execute_instruction(
+                                instruction,
+                                &mut variable_environment,
+                            ) {
+                                Ok(()) => (),
+                                Err(e) => {
+                                    println!("{e:?}");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
                 println!("{e:?}");

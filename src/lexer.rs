@@ -14,20 +14,20 @@ pub enum Token {
 #[derive(Debug)]
 pub enum TokenKeyword {
     Let,
-    For,
-    While,
-    Loop,
-    Return,
-    Break,
-    Run,
-    Spawn,
-    Print,
+    Echo,
+    // For,
+    // While,
+    // Loop,
+    // Return,
+    // Break,
+    // Run,
+    // Spawn,
 }
 
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct TokenNumber {
-    string: String,
+    pub string: String,
 }
 
 #[derive(Debug)]
@@ -94,16 +94,16 @@ pub fn lex(
             }
             tokens.push(match identifier.as_str() {
                 "let" => Token::Keyword(TokenKeyword::Let),
-                "for" => Token::Keyword(TokenKeyword::For),
-                "while" => Token::Keyword(TokenKeyword::While),
-                "loop" => Token::Keyword(TokenKeyword::Loop),
-                "return" => Token::Keyword(TokenKeyword::Return),
-                "break" => Token::Keyword(TokenKeyword::Break),
-                "run" => Token::Keyword(TokenKeyword::Run),
-                "spawn" => Token::Keyword(TokenKeyword::Spawn),
+                // "for" => Token::Keyword(TokenKeyword::For),
+                // "while" => Token::Keyword(TokenKeyword::While),
+                // "loop" => Token::Keyword(TokenKeyword::Loop),
+                // "return" => Token::Keyword(TokenKeyword::Return),
+                // "break" => Token::Keyword(TokenKeyword::Break),
+                // "run" => Token::Keyword(TokenKeyword::Run),
+                // "spawn" => Token::Keyword(TokenKeyword::Spawn),
                 "true" => Token::Boolean(true),
                 "false" => Token::Boolean(false),
-                "print" => Token::Keyword(TokenKeyword::Print),
+                "echo" => Token::Keyword(TokenKeyword::Echo),
                 _ => Token::VariableName(identifier),
             });
         } else if let '0'..='9' = ch {
