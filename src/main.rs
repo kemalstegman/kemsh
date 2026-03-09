@@ -23,7 +23,7 @@ fn main() {
         let char_vec: Vec<char> = s.chars().collect();
         match lexer::lex(char_vec.iter().copied().peekable()) {
             Ok(Some(v)) => {
-                println!("{v:?}");
+                // println!("{v:?}");
                 match parser::parse(v.into_iter().peekable()) {
                     Err(e) => {
                         println!("{e:?}");
