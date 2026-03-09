@@ -1,72 +1,17 @@
 use std::collections::HashMap;
 
-pub struct VariableEnvironment {
-    scopes: Vec<HashMap<String, Option<VariableValue>>>,
-}
+use crate::executor::variable_environment::VariableEnvironment;
 
-impl VariableEnvironment {
-    pub fn new() -> Self {
-        Self { scopes: Vec::new() }
-    }
-    pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-    pub fn pop_scope(&mut self) -> Option<()> {
-        match self.scopes.pop() {
-            Some(_) => Some(()),
-            None => None,
-        }
-    }
-    pub fn declare_variable(&mut self, variable_name: String) {
-        if self
-            .scopes
-            .last_mut()
-            .unwrap()
-            .insert(variable_name, None)
-            .is_some()
-        {
-            panic!()
-        }
-    }
-    pub fn declare_and_initialize_variable(
-        &mut self,
-        variable_name: String,
-        variable_value: VariableValue,
-    ) {
-        if self
-            .scopes
-            .last_mut()
-            .unwrap()
-            .insert(variable_name, Some(variable_value))
-            .is_some()
-        {
-            panic!()
-        }
-    }
-    pub fn assign_variable(
-        &mut self,
-        variable_name: String,
-        variable_value: VariableValue,
-    ) -> Result<(), ()> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(value) = scope.get_mut(&variable_name) {
-                *value = Some(variable_value);
-                return Ok(());
-            }
-        }
-        Err(())
-    }
-    pub fn get_variable(&self, variable_name: String) -> Result<Option<VariableValue>, ()> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(possible_value) = scope.get(&variable_name) {
-                match possible_value {
-                    Some(value) => return Ok(Some(value.clone())),
-                    None => return Err(()),
-                }
-            }
-        }
-        Ok(None)
-    }
+mod variable_environment;
+
+pub fn new_variable_environment_with_globals() -> VariableEnvironment<VariableValue> {
+    let mut ve = VariableEnvironment::new();
+    ve.push_scope();
+    ve.declare_and_initialize_variable(
+        "_KEMSH_VERSION".to_string(),
+        VariableValue::LiteralString("0.1.0".to_string()),
+    );
+    ve
 }
 
 #[derive(Debug, Clone)]
@@ -124,7 +69,7 @@ pub struct InstructionExecutionError {
 
 pub fn execute_instruction(
     instruction: Instruction,
-    variable_environment: &mut VariableEnvironment,
+    variable_environment: &mut VariableEnvironment<VariableValue>,
 ) -> Result<(), InstructionExecutionError> {
     match instruction {
         Instruction::Let(LetInstruction {
@@ -158,11 +103,11 @@ pub fn execute_instruction(
                 message: "Expected a value from expression".to_string(),
             })?,
             Ok(Some(variable_value)) => {
-                match variable_environment.assign_variable(variable_name, variable_value) {
-                    Err(()) => Err(InstructionExecutionError {
-                        message: "Variable dne".to_string(),
+                match variable_environment.set_variable(&variable_name, variable_value) {
+                    Err(err) => Err(InstructionExecutionError {
+                        message: format!("{err:?}"),
                     })?,
-                    Ok(()) => (),
+                    Ok(_) => (),
                 }
             }
         },
@@ -189,19 +134,19 @@ struct ExpressionExecutionError {
 
 fn execute_expression(
     expression: Expression,
-    variable_environment: &mut VariableEnvironment,
+    variable_environment: &mut VariableEnvironment<VariableValue>,
 ) -> Result<Option<VariableValue>, ExpressionExecutionError> {
     match expression {
         Expression::Value(value) => Ok(Some(value)),
         Expression::Variable(variable_name) => {
-            match variable_environment.get_variable(variable_name) {
+            match variable_environment.get_variable(&variable_name) {
                 Ok(None) => Err(ExpressionExecutionError {
                     message: "Variable dne".to_string(),
                 }),
-                Err(()) => Err(ExpressionExecutionError {
-                    message: "Variable uninitialized".to_string(),
+                Err(err) => Err(ExpressionExecutionError {
+                    message: format!("{err:?}"),
                 }),
-                Ok(Some(value)) => Ok(Some(value)),
+                Ok(Some(value)) => Ok(Some(value.clone())),
             }
         }
         Expression::Operation(operation) => {
@@ -221,7 +166,7 @@ struct OperationExecutionError {
 
 fn execute_operation(
     operation: Operation,
-    variable_environment: &mut VariableEnvironment,
+    variable_environment: &mut VariableEnvironment<VariableValue>,
 ) -> Result<VariableValue, OperationExecutionError> {
     match operation {
         Operation::Add { lhs, rhs } => {
