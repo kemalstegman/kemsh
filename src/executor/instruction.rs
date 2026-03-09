@@ -1,6 +1,6 @@
 use crate::executor::{
     expression::{Expression, execute_expression},
-    variables::Environment,
+    variables::{Environment, VariableName},
 };
 
 pub enum Instruction {
@@ -12,12 +12,12 @@ pub enum Instruction {
 }
 
 pub struct LetInstruction {
-    pub variable_name: String,
+    pub variable_name: VariableName,
     // pub variable_type: (),
     pub expression: Option<Expression>,
 }
 pub struct SetInstruction {
-    pub variable_name: String,
+    pub variable_name: VariableName,
     pub expression: Expression,
 }
 
@@ -43,7 +43,9 @@ pub fn execute_instruction(
             variable_name,
             expression: None,
         }) => {
-            variable_environment.declare_typeless(variable_name);
+            variable_environment
+                .declare_typeless(variable_name)
+                .unwrap();
         }
         Instruction::Let(LetInstruction {
             variable_name,
@@ -56,7 +58,9 @@ pub fn execute_instruction(
                 message: "Expected a value from expression".to_string(),
             })?,
             Ok(Some(variable_value)) => {
-                variable_environment.declare_initialized(variable_name, variable_value);
+                variable_environment
+                    .declare_initialized(variable_name, variable_value)
+                    .unwrap();
             }
         },
         Instruction::Set(SetInstruction {

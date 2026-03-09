@@ -8,17 +8,15 @@ mod executor;
 mod lexer;
 mod parser;
 
-mod unit_instructions;
-
 fn main() {
     let mut stdout = stdout().lock();
-    print!("Hello, world! > ");
-    stdout.flush().unwrap();
     let mut stdin_reader = BufReader::new(stdin().lock());
     let mut s = String::new();
-    let mut variable_environment = executor::VariableEnvironment::new();
-    variable_environment.push_scope();
-    loop {
+    let mut variable_environment = executor::variables::Environment::new_with_default_globals();
+    print!(" ");
+    'ic: loop {
+        print!("> ");
+        stdout.flush().unwrap();
         stdin_reader.read_line(&mut s).unwrap();
         let char_vec: Vec<char> = s.chars().collect();
         match lexer::lex(char_vec.iter().copied().peekable()) {
@@ -27,20 +25,27 @@ fn main() {
                 match parser::parse(v.into_iter().peekable()) {
                     Err(e) => {
                         println!("{e:?}");
-                        break;
+                        s.clear();
+                        print!(" ");
+                        continue 'ic;
                     }
-                    Ok(None) => continue,
+                    Ok(None) => {
+                        print!(">");
+                        continue 'ic;
+                    }
                     Ok(Some(instructions)) => {
                         s.clear();
                         for instruction in instructions {
-                            match executor::execute_instruction(
+                            match executor::instruction::execute_instruction(
                                 instruction,
                                 &mut variable_environment,
                             ) {
-                                Ok(()) => (),
+                                Ok(()) => print!(" "),
                                 Err(e) => {
                                     println!("{e:?}");
-                                    break;
+                                    s.clear();
+                                    print!(" ");
+                                    continue 'ic;
                                 }
                             }
                         }
@@ -49,9 +54,14 @@ fn main() {
             }
             Err(e) => {
                 println!("{e:?}");
-                break;
+                s.clear();
+                print!(" ");
+                continue 'ic;
             }
-            Ok(None) => continue,
+            Ok(None) => {
+                print!(">");
+                continue 'ic;
+            }
         }
     }
 }

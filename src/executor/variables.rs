@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 pub type VariableName = String;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum VariableValue {
     LiteralString(String),
@@ -69,6 +70,7 @@ impl Variable {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct EnvironmentError {
     pub message: String,

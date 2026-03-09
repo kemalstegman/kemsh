@@ -1,19 +1,19 @@
 pub mod variables;
-use variables::{Environment, EnvironmentError, VariableKind, VariableName, VariableValue};
 
 pub mod instruction;
-use instruction::{
-    EchoInstruction, Instruction, LetInstruction, SetInstruction, execute_instruction,
-};
 
 pub mod expression;
-use expression::Expression;
 
 pub mod operation;
-use operation::Operation;
 
 #[test]
 fn test_execution() {
+    use expression::Expression;
+    use instruction::{
+        EchoInstruction, Instruction, LetInstruction, SetInstruction, execute_instruction,
+    };
+    use operation::Operation;
+    use variables::{Environment, VariableValue};
     let mut ve = Environment::new_with_default_globals();
     ve.push_scope();
     let instructions = [

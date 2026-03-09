@@ -1,7 +1,11 @@
 use std::iter::Peekable;
 
 use crate::{
-    executor::{EchoInstruction, Expression, Instruction, LetInstruction, VariableValue},
+    executor::{
+        expression::Expression,
+        instruction::{EchoInstruction, Instruction, LetInstruction, SetInstruction},
+        variables::VariableValue,
+    },
     lexer::{Token, TokenDelimeter, TokenKeyword, TokenNumber},
 };
 
@@ -57,6 +61,28 @@ pub fn parse(
                 }
             },
             // Token::Keyword(TokenKeyword::Run) => {}
+            Token::VariableName(variable_name) => match token_stream.next() {
+                None => return Ok(None),
+                Some(Token::Delimeter(TokenDelimeter::Equal)) => {
+                    match parse_expression(&mut token_stream) {
+                        Ok(None) => return Ok(None),
+                        Ok(Some(e)) => commands.push(Instruction::Set(SetInstruction {
+                            variable_name: variable_name,
+                            expression: e,
+                        })),
+                        Err(()) => {
+                            return Err(ParseError {
+                                message: "expected expression".to_string(),
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    return Err(ParseError {
+                        message: "expected =".to_string(),
+                    });
+                }
+            },
             _ => {
                 return Err(ParseError {
                     message: format!("Token unimplemented: {tok:?}"),
