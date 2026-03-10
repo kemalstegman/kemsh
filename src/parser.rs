@@ -30,6 +30,7 @@ pub fn parse(
                             Ok(None) => return Ok(None),
                             Ok(Some(e)) => commands.push(Instruction::Let(LetInstruction {
                                 variable_name: var_name,
+                                variable_kind: None,
                                 expression: Some(e),
                             })),
                             Err(()) => {
@@ -53,7 +54,9 @@ pub fn parse(
             },
             Token::Keyword(TokenKeyword::Echo) => match parse_expression(&mut token_stream) {
                 Ok(None) => return Ok(None),
-                Ok(Some(e)) => commands.push(Instruction::Echo(EchoInstruction { expression: e })),
+                Ok(Some(e)) => commands.push(Instruction::Echo(EchoInstruction {
+                    expressions: vec![e],
+                })),
                 Err(()) => {
                     return Err(ParseError {
                         message: "expected expression".to_string(),

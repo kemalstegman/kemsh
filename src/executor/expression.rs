@@ -3,6 +3,7 @@ use crate::executor::{
     variables::{Environment, VariableName, VariableValue},
 };
 
+#[allow(dead_code)]
 pub enum Expression {
     Variable(VariableName),
     Value(VariableValue),
@@ -10,6 +11,8 @@ pub enum Expression {
     // Block,
 }
 
+#[allow(dead_code)]
+#[derive(Debug)]
 pub struct ExpressionExecutionError {
     pub message: String,
 }
@@ -30,7 +33,7 @@ pub fn execute_expression(
             match execute_operation(*operation, variable_environment) {
                 Ok(value) => Ok(Some(value)),
                 Err(e) => Err(ExpressionExecutionError {
-                    message: format!("Error executing operation: {}", e.message),
+                    message: format!("error executing operation: {}", e.message),
                 }),
             }
         }

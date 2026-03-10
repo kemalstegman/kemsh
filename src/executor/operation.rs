@@ -3,6 +3,7 @@ use crate::executor::{
     variables::{Environment, VariableValue},
 };
 
+#[allow(dead_code)]
 pub enum Operation {
     Add { lhs: Expression, rhs: Expression },
     Subtract { lhs: Expression, rhs: Expression },

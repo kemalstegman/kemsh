@@ -96,6 +96,7 @@ impl Environment {
     pub fn push_scope(&mut self) {
         self.0.push(HashMap::new());
     }
+    #[allow(dead_code)]
     pub fn pop_scope(&mut self) {
         self.0.pop();
     }

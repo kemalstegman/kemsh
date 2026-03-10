@@ -8,14 +8,14 @@ mod executor;
 mod lexer;
 mod parser;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = stdout().lock();
     let mut stdin_reader = BufReader::new(stdin().lock());
     let mut s = String::new();
     let mut variable_environment = executor::variables::Environment::new_with_default_globals();
     print!(" ");
     'ic: loop {
-        print!("> ");
+        print!("{:?} > ", std::env::current_dir()?);
         stdout.flush().unwrap();
         stdin_reader.read_line(&mut s).unwrap();
         let char_vec: Vec<char> = s.chars().collect();

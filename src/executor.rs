@@ -19,10 +19,11 @@ fn test_execution() {
     let instructions = [
         Instruction::Let(LetInstruction {
             variable_name: "x".to_string(),
+            variable_kind: None,
             expression: Some(Expression::Value(VariableValue::LiteralInteger(12))),
         }),
         Instruction::Echo(EchoInstruction {
-            expression: Expression::Variable("x".to_string()),
+            expressions: vec![Expression::Variable("x".to_string())],
         }),
         Instruction::Set(SetInstruction {
             variable_name: "x".to_string(),
@@ -32,7 +33,7 @@ fn test_execution() {
             })),
         }),
         Instruction::Echo(EchoInstruction {
-            expression: Expression::Variable("x".to_string()),
+            expressions: vec![Expression::Variable("x".to_string())],
         }),
         Instruction::Set(SetInstruction {
             variable_name: "x".to_string(),
@@ -42,7 +43,7 @@ fn test_execution() {
             })),
         }),
         Instruction::Echo(EchoInstruction {
-            expression: Expression::Variable("x".to_string()),
+            expressions: vec![Expression::Variable("x".to_string())],
         }),
     ];
     for i in instructions {
