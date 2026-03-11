@@ -8,6 +8,7 @@ pub enum Expression {
     Variable(VariableName),
     Value(VariableValue),
     Operation(Box<Operation>),
+    // Instruction,
     // Block,
 }
 

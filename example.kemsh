@@ -9,7 +9,10 @@ exec "ls"
 
 let raw_string = "123/^%^{}"
 
-let hraw_string = #"I can use these now: """""!!"#
+let hraw_string = #"I can use these now: "+""""!!"#
 
 // "y equals 10 which is cool"
 let istring = e"y equals {y} which is cool"
+
+let x = a + 1;
+let y = a + 1 + b;

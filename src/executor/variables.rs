@@ -147,17 +147,16 @@ impl Environment {
                     message: "environment has no scopes".to_string(),
                 });
             }
-            Some(scope) => match scope.contains_key(&name) {
-                true => {
+            Some(scope) => {
+                if scope.contains_key(&name) {
                     return Err(EnvironmentError {
                         message: "variable already declared".to_string(),
                     });
-                }
-                false => {
+                } else {
                     scope.insert(name, variable);
                     Ok(())
                 }
-            },
+            }
         }
     }
     pub fn declare_typeless(&mut self, name: VariableName) -> Result<(), EnvironmentError> {
