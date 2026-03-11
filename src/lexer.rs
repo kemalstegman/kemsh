@@ -1,219 +1,228 @@
 use std::iter::Peekable;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Token {
-    Keyword(TokenKeyword),
-    VariableName(String),
-    Number(TokenNumber),
+    Identifier(String),
     String(String),
-    Boolean(bool),
-    Delimeter(TokenDelimeter),
+    Number(i64),
+    Delimeter(Delimeter),
 }
 
 #[derive(Debug)]
-pub enum TokenKeyword {
-    Let,
-    Echo,
-    For,
-    While,
-    Loop,
-    Return,
-    Break,
-    Run,
-    Spawn,
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct TokenNumber {
-    pub string: String,
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub enum TokenDelimeter {
+pub enum Delimeter {
     Whitespace,
-    ExclamationMark,
-    // At,
-    // Hashtag,
-    // Dollar,
-    // Percent,
-    Carret,
-    Ampersand,
-    AmpersandAmpersand,
-    Asterisk,
-    OpenParenthesis,
-    CloseParenthesis,
-    Minus,
-    Plus,
-    Equal,
-    EqualEqual,
-    Pipe,
-    PipePipe,
-    OpenBracket,
-    CloseBracket,
-    OpenBrace,
-    CloseBrace,
-    Semicolon,
-    Colon,
-    OpenAngleBracket,
-    OpenAngleBracketOpenAngleBracket,
-    Comma,
-    CloseAngleBracket,
-    CloseAngleBracketCloseAngleBracket,
-    Period,
-    FowardSlash,
+    ExclamationMark,    // !
+    Carret,             // ^
+    Ampersand,          // &
+    AmpersandAmpersand, // &&
+    Asterisk,           // *
+    OpenParenthesis,    // (
+    CloseParenthesis,   // )
+    Minus,              // -
+    Plus,               // +
+    Equal,              // =
+    EqualEqual,         // ==
+    Pipe,               // |
+    PipePipe,           // ||
+    OpenBracket,        // [
+    CloseBracket,       // ]
+    OpenBrace,          // {
+    CloseBrace,         // }
+    Semicolon,          // ;
+    Colon,              // :
+    OpenAngleBracket,   // <
+    CloseAngleBracket,  // >
+    Comma,              // ,
+    Period,             // .
+    ForwardSlash,       // /
 }
 
-#[allow(dead_code)]
+pub struct Lexer<I>
+where
+    I: Iterator<Item = char>,
+{
+    iter: Peekable<I>,
+}
+
+impl<I> Lexer<I>
+where
+    I: Iterator<Item = char>,
+{
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter: iter.peekable(),
+        }
+    }
+}
+
+impl<I> Iterator for Lexer<I>
+where
+    I: Iterator<Item = char>,
+{
+    type Item = Result<Option<Token>, LexError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(lex_token(self.iter.next()?, &mut self.iter))
+    }
+}
+
 #[derive(Debug)]
 pub struct LexError {
     message: String,
 }
 
-pub fn lex(
-    mut input_stream: Peekable<impl Iterator<Item = char>>,
-) -> Result<Option<Vec<Token>>, LexError> {
-    let mut tokens: Vec<Token> = Vec::new();
-    while let Some(ch) = input_stream.next() {
-        if let ' ' | '\t' | '\n' | '\r' = ch {
-            // match tokens.last() {
-            //     Some(Token::Delimeter(TokenDelimeter::Whitespace)) => (),
-            //     _ => {
-            //         tokens.push(Token::Delimeter(TokenDelimeter::Whitespace));
-            //     }
-            // }
-            continue;
-        } else if let 'a'..='z' | 'A'..='Z' | '_' = ch {
+fn lex_token(
+    ch: char,
+    iter: &mut Peekable<impl Iterator<Item = char>>,
+) -> Result<Option<Token>, LexError> {
+    match ch {
+        ' ' | '\t' | '\n' | '\r' => {
+            while let Some(_) = iter.next_if(|ch| match ch {
+                ' ' | '\t' | '\n' | '\r' => true,
+                _ => false,
+            }) {}
+            Ok(Some(Token::Delimeter(Delimeter::Whitespace)))
+        }
+        '"' => Ok(lex_string(iter, 0, false).map(|string| Token::String(string))),
+        '#' => {
+            let hashtag_count = count_hashtags(iter) + 1;
+            if iter.next_if_eq(&'"').is_none() {
+                return Err(LexError {
+                    message: String::from("Expected quotation mark"),
+                });
+            }
+            Ok(lex_string(iter, hashtag_count, false).map(|string| Token::String(string)))
+        }
+        'e' if iter.next_if_eq(&'"').is_some() => {
+            Ok(lex_string(iter, 0, true).map(|string| Token::String(string)))
+        }
+        'e' if iter.next_if_eq(&'#').is_some() => {
+            let hashtag_count = count_hashtags(iter) + 1;
+            if iter.next_if_eq(&'"').is_none() {
+                return Err(LexError {
+                    message: String::from("Expected quotation mark"),
+                });
+            }
+            Ok(lex_string(iter, hashtag_count, true).map(|string| Token::String(string)))
+        }
+        ch @ '0'..='9' => {
+            let number_string = String::from(ch);
+            Ok(Some(Token::Number(lex_number(iter, number_string)?)))
+        }
+        ch @ ('a'..='z' | 'A'..='Z' | '_') => {
             let mut identifier = String::from(ch);
-            while let Some(ch) = input_stream.next_if(|ch| match ch {
-                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => true,
-                _ => false,
-            }) {
-                identifier.push(ch);
-            }
-            tokens.push(match identifier.as_str() {
-                "let" => Token::Keyword(TokenKeyword::Let),
-                "for" => Token::Keyword(TokenKeyword::For),
-                "while" => Token::Keyword(TokenKeyword::While),
-                "loop" => Token::Keyword(TokenKeyword::Loop),
-                "return" => Token::Keyword(TokenKeyword::Return),
-                "break" => Token::Keyword(TokenKeyword::Break),
-                "run" => Token::Keyword(TokenKeyword::Run),
-                "spawn" => Token::Keyword(TokenKeyword::Spawn),
-                "echo" => Token::Keyword(TokenKeyword::Echo),
-                "true" => Token::Boolean(true),
-                "false" => Token::Boolean(false),
-                _ => Token::VariableName(identifier),
-            });
-        } else if let '0'..='9' = ch {
-            let mut number_string = String::from(ch);
-            while let Some(ch) = input_stream.next_if(|ch| match ch {
-                '0'..='9' => true,
-                _ => false,
-            }) {
-                number_string.push(ch);
-            }
-            tokens.push(Token::Number(TokenNumber {
-                string: number_string,
-            }));
-        } else if let '#' | '"' = ch {
-            // todo!()
-            let _is_escaped = match tokens.last() {
-                None => false,
-                Some(Token::VariableName(s)) if s == "e" => {
-                    tokens.pop();
-                    true
-                }
-                Some(_) => false,
-            };
-            let hashtag_count = match ch {
-                '"' => 0,
-                '#' => {
-                    let mut count = 1;
-                    while let Some(_) = input_stream.next_if_eq(&'#') {
-                        count += 1;
-                    }
-                    match input_stream.next() {
-                        None => return Ok(None),
-                        Some('"') => (),
-                        Some(_) => {
-                            return Err(LexError {
-                                message: format!("Expected quotation mark"),
-                            });
-                        }
-                    }
-                    count
-                }
-                _ => unreachable!(),
-            };
-            let mut string = String::new();
-            'string: loop {
-                match input_stream.next() {
-                    None => return Ok(None),
-                    Some('"') => {
-                        for i in 0..hashtag_count {
-                            match input_stream.next() {
-                                None => return Ok(None),
-                                Some('#') => (),
-                                Some(ch) => {
-                                    string.push_str(&format!("\"{}{ch}", "#".repeat(i)));
-                                    continue 'string;
-                                }
+            lex_identifier(iter, &mut identifier);
+            Ok(Some(Token::Identifier(identifier)))
+        }
+        '!' => Ok(Some(Token::Delimeter(Delimeter::ExclamationMark))),
+        '^' => Ok(Some(Token::Delimeter(Delimeter::Carret))),
+        '&' => match iter.next_if_eq(&'&') {
+            Some(_) => Ok(Some(Token::Delimeter(Delimeter::AmpersandAmpersand))),
+            None => Ok(Some(Token::Delimeter(Delimeter::Ampersand))),
+        },
+        '*' => Ok(Some(Token::Delimeter(Delimeter::Asterisk))),
+        '(' => Ok(Some(Token::Delimeter(Delimeter::OpenParenthesis))),
+        ')' => Ok(Some(Token::Delimeter(Delimeter::CloseParenthesis))),
+        '-' => Ok(Some(Token::Delimeter(Delimeter::Minus))),
+        '+' => Ok(Some(Token::Delimeter(Delimeter::Plus))),
+        '=' => match iter.next_if_eq(&'=') {
+            Some(_) => Ok(Some(Token::Delimeter(Delimeter::EqualEqual))),
+            None => Ok(Some(Token::Delimeter(Delimeter::Equal))),
+        },
+        '|' => match iter.next_if_eq(&'|') {
+            Some(_) => Ok(Some(Token::Delimeter(Delimeter::PipePipe))),
+            None => Ok(Some(Token::Delimeter(Delimeter::Pipe))),
+        },
+        '[' => Ok(Some(Token::Delimeter(Delimeter::OpenBracket))),
+        ']' => Ok(Some(Token::Delimeter(Delimeter::CloseBracket))),
+        '{' => Ok(Some(Token::Delimeter(Delimeter::OpenBrace))),
+        '}' => Ok(Some(Token::Delimeter(Delimeter::CloseBrace))),
+        ';' => Ok(Some(Token::Delimeter(Delimeter::Semicolon))),
+        ':' => Ok(Some(Token::Delimeter(Delimeter::Colon))),
+        '<' => Ok(Some(Token::Delimeter(Delimeter::OpenAngleBracket))),
+        '>' => Ok(Some(Token::Delimeter(Delimeter::CloseAngleBracket))),
+        ',' => Ok(Some(Token::Delimeter(Delimeter::Comma))),
+        '.' => Ok(Some(Token::Delimeter(Delimeter::Period))),
+        '/' => Ok(Some(Token::Delimeter(Delimeter::ForwardSlash))),
+        ch => Err(LexError {
+            message: format!("Unexpected character: {:?}", ch),
+        }),
+    }
+}
+
+fn lex_identifier(iter: &mut Peekable<impl Iterator<Item = char>>, string: &mut String) {
+    while let Some(ch) = iter.next_if(|ch| match ch {
+        'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => true,
+        _ => false,
+    }) {
+        string.push(ch);
+    }
+}
+
+fn lex_number(
+    iter: &mut Peekable<impl Iterator<Item = char>>,
+    mut number_string: String,
+) -> Result<i64, LexError> {
+    while let Some(ch) = iter.next_if(|ch| match ch {
+        '0'..='9' => true,
+        _ => false,
+    }) {
+        number_string.push(ch);
+    }
+    match number_string.parse::<i64>() {
+        Ok(n) => Ok(n),
+        Err(_) => Err(LexError {
+            message: format!("Invalid (i64) number: {:?}", number_string),
+        }),
+    }
+}
+
+fn count_hashtags(iter: &mut Peekable<impl Iterator<Item = char>>) -> u32 {
+    let mut hashtag_count = 1;
+    while let Some(_) = iter.next_if_eq(&'#') {
+        hashtag_count += 1;
+    }
+    hashtag_count
+}
+
+fn lex_string(
+    iter: &mut Peekable<impl Iterator<Item = char>>,
+    hashtag_delimeter_count: u32,
+    _escaped: bool,
+) -> Option<String> {
+    let mut string = String::new();
+    'charpush: loop {
+        match iter.next()? {
+            // '\\' if escaped => todo!(),
+            '"' => {
+                for i in 0..hashtag_delimeter_count {
+                    match iter.next()? {
+                        '#' => (),
+                        ch => {
+                            string.push('"');
+                            for _ in 0..i {
+                                string.push('#');
                             }
+                            string.push(ch);
+                            continue 'charpush;
                         }
-                        break 'string;
                     }
-                    Some(ch) => string.push(ch),
                 }
+                return Some(string);
             }
-            tokens.push(Token::String(string));
-        } else if let Some(delim) = match ch {
-            // '#' => Some(TokenDelimeter::Hashtag),
-            '^' => Some(TokenDelimeter::Carret),
-            '&' => match input_stream.next_if_eq(&'&') {
-                Some(_) => Some(TokenDelimeter::AmpersandAmpersand),
-                None => Some(TokenDelimeter::Ampersand),
-            },
-            '*' => Some(TokenDelimeter::Asterisk),
-            '(' => Some(TokenDelimeter::OpenParenthesis),
-            ')' => Some(TokenDelimeter::CloseParenthesis),
-            '-' => Some(TokenDelimeter::Minus),
-            '+' => Some(TokenDelimeter::Plus),
-            '=' => match input_stream.next_if_eq(&'=') {
-                Some(_) => Some(TokenDelimeter::EqualEqual),
-                None => Some(TokenDelimeter::Equal),
-            },
-            '/' => Some(TokenDelimeter::FowardSlash),
-            '|' => match input_stream.next_if_eq(&'|') {
-                Some(_) => Some(TokenDelimeter::PipePipe),
-                None => Some(TokenDelimeter::Pipe),
-            },
-            '[' => Some(TokenDelimeter::OpenBracket),
-            ']' => Some(TokenDelimeter::CloseBracket),
-            '{' => Some(TokenDelimeter::OpenBrace),
-            '}' => Some(TokenDelimeter::CloseBrace),
-            ';' => Some(TokenDelimeter::Semicolon),
-            ':' => Some(TokenDelimeter::Colon),
-            ',' => Some(TokenDelimeter::Comma),
-            '<' => match input_stream.next_if_eq(&'<') {
-                Some(_) => Some(TokenDelimeter::OpenAngleBracketOpenAngleBracket),
-                None => Some(TokenDelimeter::OpenAngleBracket),
-            },
-            '>' => match input_stream.next_if_eq(&'>') {
-                Some(_) => Some(TokenDelimeter::CloseAngleBracketCloseAngleBracket),
-                None => Some(TokenDelimeter::CloseAngleBracket),
-            },
-            '.' => Some(TokenDelimeter::Period),
-            _ => None,
-        } {
-            tokens.push(Token::Delimeter(delim));
-        } else {
-            return Err(LexError {
-                message: format!("Unknown character: {ch:?}"),
-            });
+            ch => string.push(ch),
         }
     }
-    Ok(Some(tokens))
 }
+
+// "let" => Token::Keyword(TokenKeyword::Let),
+// "for" => Token::Keyword(TokenKeyword::For),
+// "while" => Token::Keyword(TokenKeyword::While),
+// "loop" => Token::Keyword(TokenKeyword::Loop),
+// "return" => Token::Keyword(TokenKeyword::Return),
+// "break" => Token::Keyword(TokenKeyword::Break),
+// "run" => Token::Keyword(TokenKeyword::Run),
+// "spawn" => Token::Keyword(TokenKeyword::Spawn),
+// "echo" => Token::Keyword(TokenKeyword::Echo),
+// "true" => Token::Boolean(true),
+// "false" => Token::Boolean(false),
+// _ => Token::VariableName(identifier),
