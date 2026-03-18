@@ -1,155 +1,156 @@
-use std::iter::Peekable;
+mod token;
+pub use token::{Delimeter, Token};
 
-#[derive(Debug)]
-pub enum Token {
-    Identifier(String),
-    String(String),
-    Number(i64),
-    Delimeter(Delimeter),
-}
-
-#[derive(Debug)]
-pub enum Delimeter {
-    Whitespace,
-    ExclamationMark,    // !
-    Carret,             // ^
-    Ampersand,          // &
-    AmpersandAmpersand, // &&
-    Asterisk,           // *
-    OpenParenthesis,    // (
-    CloseParenthesis,   // )
-    Minus,              // -
-    Plus,               // +
-    Equal,              // =
-    EqualEqual,         // ==
-    Pipe,               // |
-    PipePipe,           // ||
-    OpenBracket,        // [
-    CloseBracket,       // ]
-    OpenBrace,          // {
-    CloseBrace,         // }
-    Semicolon,          // ;
-    Colon,              // :
-    OpenAngleBracket,   // <
-    CloseAngleBracket,  // >
-    Comma,              // ,
-    Period,             // .
-    ForwardSlash,       // /
-}
-
-pub struct Lexer<I>
-where
-    I: Iterator<Item = char>,
-{
-    iter: Peekable<I>,
-}
-
-impl<I> Lexer<I>
-where
-    I: Iterator<Item = char>,
-{
-    pub fn new(iter: I) -> Self {
-        Self {
-            iter: iter.peekable(),
-        }
-    }
-}
-
-impl<I> Iterator for Lexer<I>
-where
-    I: Iterator<Item = char>,
-{
-    type Item = Result<Option<Token>, LexError>;
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(lex_token(self.iter.next()?, &mut self.iter))
-    }
-}
+mod lexable;
+pub use lexable::{LexableCharBuffer, TrackingPeekable};
 
 #[derive(Debug)]
 pub struct LexError {
     message: String,
 }
 
+pub fn lex(lexable_chars: &mut impl LexableCharBuffer) -> Option<Result<Option<Token>, LexError>> {
+    let (res, consumed) = {
+        let mut iter = TrackingPeekable::new(lexable_chars.chars());
+        (lex_token(&mut iter), iter.next_consumed())
+    };
+    if let Some(Ok(Some(_))) = res {
+        lexable_chars.consume(consumed);
+    }
+    res
+}
+
 fn lex_token(
-    ch: char,
-    iter: &mut Peekable<impl Iterator<Item = char>>,
-) -> Result<Option<Token>, LexError> {
-    match ch {
+    iter: &mut TrackingPeekable<impl Iterator<Item = char>>,
+) -> Option<Result<Option<Token>, LexError>> {
+    match iter.next()? {
         ' ' | '\t' | '\n' | '\r' => {
             while let Some(_) = iter.next_if(|ch| match ch {
                 ' ' | '\t' | '\n' | '\r' => true,
                 _ => false,
             }) {}
-            Ok(Some(Token::Delimeter(Delimeter::Whitespace)))
+            Some(Ok(Some(Token::Delimeter(Delimeter::Whitespace))))
         }
-        '"' => Ok(lex_string(iter, 0, false).map(|string| Token::String(string))),
+        '"' => Some(lex_string(iter, 0, false).map(|opt| opt.map(|string| Token::String(string)))),
         '#' => {
-            let hashtag_count = count_hashtags(iter) + 1;
-            if iter.next_if_eq(&'"').is_none() {
-                return Err(LexError {
-                    message: String::from("Expected quotation mark"),
-                });
-            }
-            Ok(lex_string(iter, hashtag_count, false).map(|string| Token::String(string)))
+            let delimeter_hashtags = match consume_string_start_delimeter(iter) {
+                Ok(n) => n + 1,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(
+                lex_string(iter, delimeter_hashtags, false)
+                    .map(|opt| opt.map(|string| Token::String(string))),
+            )
         }
         'e' if iter.next_if_eq(&'"').is_some() => {
-            Ok(lex_string(iter, 0, true).map(|string| Token::String(string)))
+            Some(lex_string(iter, 0, true).map(|opt| opt.map(|string| Token::String(string))))
         }
         'e' if iter.next_if_eq(&'#').is_some() => {
-            let hashtag_count = count_hashtags(iter) + 1;
-            if iter.next_if_eq(&'"').is_none() {
-                return Err(LexError {
-                    message: String::from("Expected quotation mark"),
-                });
-            }
-            Ok(lex_string(iter, hashtag_count, true).map(|string| Token::String(string)))
+            let delimeter_hashtags = match consume_string_start_delimeter(iter) {
+                Ok(n) => n + 1,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(
+                lex_string(iter, delimeter_hashtags, true)
+                    .map(|opt| opt.map(|string| Token::String(string))),
+            )
         }
         ch @ '0'..='9' => {
             let number_string = String::from(ch);
-            Ok(Some(Token::Number(lex_number(iter, number_string)?)))
+            Some(lex_number(iter, number_string).map(|n| Some(Token::Number(n))))
         }
         ch @ ('a'..='z' | 'A'..='Z' | '_') => {
             let mut identifier = String::from(ch);
             lex_identifier(iter, &mut identifier);
-            Ok(Some(Token::Identifier(identifier)))
+            Some(Ok(Some(Token::Identifier(identifier))))
         }
-        '!' => Ok(Some(Token::Delimeter(Delimeter::ExclamationMark))),
-        '^' => Ok(Some(Token::Delimeter(Delimeter::Carret))),
+        '!' => Some(Ok(Some(Token::Delimeter(Delimeter::ExclamationMark)))),
+        '^' => Some(Ok(Some(Token::Delimeter(Delimeter::Carret)))),
         '&' => match iter.next_if_eq(&'&') {
-            Some(_) => Ok(Some(Token::Delimeter(Delimeter::AmpersandAmpersand))),
-            None => Ok(Some(Token::Delimeter(Delimeter::Ampersand))),
+            Some(_) => Some(Ok(Some(Token::Delimeter(Delimeter::AmpersandAmpersand)))),
+            None => Some(Ok(Some(Token::Delimeter(Delimeter::Ampersand)))),
         },
-        '*' => Ok(Some(Token::Delimeter(Delimeter::Asterisk))),
-        '(' => Ok(Some(Token::Delimeter(Delimeter::OpenParenthesis))),
-        ')' => Ok(Some(Token::Delimeter(Delimeter::CloseParenthesis))),
-        '-' => Ok(Some(Token::Delimeter(Delimeter::Minus))),
-        '+' => Ok(Some(Token::Delimeter(Delimeter::Plus))),
+        '*' => Some(Ok(Some(Token::Delimeter(Delimeter::Asterisk)))),
+        '(' => Some(Ok(Some(Token::Delimeter(Delimeter::OpenParenthesis)))),
+        ')' => Some(Ok(Some(Token::Delimeter(Delimeter::CloseParenthesis)))),
+        '-' => Some(Ok(Some(Token::Delimeter(Delimeter::Minus)))),
+        '+' => Some(Ok(Some(Token::Delimeter(Delimeter::Plus)))),
         '=' => match iter.next_if_eq(&'=') {
-            Some(_) => Ok(Some(Token::Delimeter(Delimeter::EqualEqual))),
-            None => Ok(Some(Token::Delimeter(Delimeter::Equal))),
+            Some(_) => Some(Ok(Some(Token::Delimeter(Delimeter::EqualEqual)))),
+            None => Some(Ok(Some(Token::Delimeter(Delimeter::Equal)))),
         },
         '|' => match iter.next_if_eq(&'|') {
-            Some(_) => Ok(Some(Token::Delimeter(Delimeter::PipePipe))),
-            None => Ok(Some(Token::Delimeter(Delimeter::Pipe))),
+            Some(_) => Some(Ok(Some(Token::Delimeter(Delimeter::PipePipe)))),
+            None => Some(Ok(Some(Token::Delimeter(Delimeter::Pipe)))),
         },
-        '[' => Ok(Some(Token::Delimeter(Delimeter::OpenBracket))),
-        ']' => Ok(Some(Token::Delimeter(Delimeter::CloseBracket))),
-        '{' => Ok(Some(Token::Delimeter(Delimeter::OpenBrace))),
-        '}' => Ok(Some(Token::Delimeter(Delimeter::CloseBrace))),
-        ';' => Ok(Some(Token::Delimeter(Delimeter::Semicolon))),
-        ':' => Ok(Some(Token::Delimeter(Delimeter::Colon))),
-        '<' => Ok(Some(Token::Delimeter(Delimeter::OpenAngleBracket))),
-        '>' => Ok(Some(Token::Delimeter(Delimeter::CloseAngleBracket))),
-        ',' => Ok(Some(Token::Delimeter(Delimeter::Comma))),
-        '.' => Ok(Some(Token::Delimeter(Delimeter::Period))),
-        '/' => Ok(Some(Token::Delimeter(Delimeter::ForwardSlash))),
-        ch => Err(LexError {
+        '[' => Some(Ok(Some(Token::Delimeter(Delimeter::OpenBracket)))),
+        ']' => Some(Ok(Some(Token::Delimeter(Delimeter::CloseBracket)))),
+        '{' => Some(Ok(Some(Token::Delimeter(Delimeter::OpenBrace)))),
+        '}' => Some(Ok(Some(Token::Delimeter(Delimeter::CloseBrace)))),
+        ';' => Some(Ok(Some(Token::Delimeter(Delimeter::Semicolon)))),
+        ':' => Some(Ok(Some(Token::Delimeter(Delimeter::Colon)))),
+        '<' => Some(Ok(Some(Token::Delimeter(Delimeter::OpenAngleBracket)))),
+        '>' => Some(Ok(Some(Token::Delimeter(Delimeter::CloseAngleBracket)))),
+        ',' => Some(Ok(Some(Token::Delimeter(Delimeter::Comma)))),
+        '.' => Some(Ok(Some(Token::Delimeter(Delimeter::Period)))),
+        '/' => Some(Ok(Some(Token::Delimeter(Delimeter::ForwardSlash)))),
+        ch => Some(Err(LexError {
             message: format!("Unexpected character: {:?}", ch),
-        }),
+        })),
     }
 }
 
-fn lex_identifier(iter: &mut Peekable<impl Iterator<Item = char>>, string: &mut String) {
+/// consumes consecutive `#` and then one `"`. success if the `"` was consumed
+/// and returns the number of `#` consumed.
+fn consume_string_start_delimeter(
+    iter: &mut TrackingPeekable<impl Iterator<Item = char>>,
+) -> Result<usize, LexError> {
+    let mut hashtag_count = 0;
+    while iter.next_if_eq(&'#').is_some() {
+        hashtag_count += 1;
+    }
+    if iter.next_if_eq(&'"').is_some() {
+        Ok(hashtag_count)
+    } else {
+        Err(LexError {
+            message: String::from("Expected quotation mark"),
+        })
+    }
+}
+
+fn lex_string(
+    iter: &mut TrackingPeekable<impl Iterator<Item = char>>,
+    delimeter_hashtags: usize,
+    _escaped: bool, // todo!()
+) -> Result<Option<String>, LexError> {
+    let mut string = String::new();
+    'charpush: loop {
+        match iter.next() {
+            None => return Ok(None),
+            // '\\' if escaped => todo!(),
+            Some('"') => {
+                for i in 0..delimeter_hashtags {
+                    match iter.next() {
+                        None => return Ok(None),
+                        Some('#') => (),
+                        Some(ch) => {
+                            string.push('"');
+                            for _ in 0..i {
+                                string.push('#');
+                            }
+                            string.push(ch);
+                            continue 'charpush;
+                        }
+                    }
+                }
+                return Ok(Some(string));
+            }
+            Some(ch) => string.push(ch),
+        }
+    }
+}
+
+fn lex_identifier(iter: &mut TrackingPeekable<impl Iterator<Item = char>>, string: &mut String) {
     while let Some(ch) = iter.next_if(|ch| match ch {
         'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => true,
         _ => false,
@@ -159,7 +160,7 @@ fn lex_identifier(iter: &mut Peekable<impl Iterator<Item = char>>, string: &mut 
 }
 
 fn lex_number(
-    iter: &mut Peekable<impl Iterator<Item = char>>,
+    iter: &mut TrackingPeekable<impl Iterator<Item = char>>,
     mut number_string: String,
 ) -> Result<i64, LexError> {
     while let Some(ch) = iter.next_if(|ch| match ch {
@@ -173,44 +174,6 @@ fn lex_number(
         Err(_) => Err(LexError {
             message: format!("Invalid (i64) number: {:?}", number_string),
         }),
-    }
-}
-
-fn count_hashtags(iter: &mut Peekable<impl Iterator<Item = char>>) -> u32 {
-    let mut hashtag_count = 1;
-    while let Some(_) = iter.next_if_eq(&'#') {
-        hashtag_count += 1;
-    }
-    hashtag_count
-}
-
-fn lex_string(
-    iter: &mut Peekable<impl Iterator<Item = char>>,
-    hashtag_delimeter_count: u32,
-    _escaped: bool,
-) -> Option<String> {
-    let mut string = String::new();
-    'charpush: loop {
-        match iter.next()? {
-            // '\\' if escaped => todo!(),
-            '"' => {
-                for i in 0..hashtag_delimeter_count {
-                    match iter.next()? {
-                        '#' => (),
-                        ch => {
-                            string.push('"');
-                            for _ in 0..i {
-                                string.push('#');
-                            }
-                            string.push(ch);
-                            continue 'charpush;
-                        }
-                    }
-                }
-                return Some(string);
-            }
-            ch => string.push(ch),
-        }
     }
 }
 
