@@ -1,21 +1,22 @@
 mod token;
 pub use token::{Delimeter, Token};
 
-mod lexable;
-pub use lexable::{LexableCharBuffer, TrackingPeekable};
+pub use crate::char_buffer::{LexableParsableCharBuffer, TrackingPeekable};
 
 #[derive(Debug)]
 pub struct LexError {
     message: String,
 }
 
-pub fn lex(lexable_chars: &mut impl LexableCharBuffer) -> Option<Result<Option<Token>, LexError>> {
+pub fn lex(
+    char_buffer: &mut impl LexableParsableCharBuffer,
+) -> Option<Result<Option<Token>, LexError>> {
     let (res, consumed) = {
-        let mut iter = TrackingPeekable::new(lexable_chars.chars());
+        let mut iter = TrackingPeekable::new(char_buffer.chars());
         (lex_token(&mut iter), iter.next_consumed())
     };
     if let Some(Ok(Some(_))) = res {
-        lexable_chars.consume(consumed);
+        char_buffer.lex_consume(consumed);
     }
     res
 }
