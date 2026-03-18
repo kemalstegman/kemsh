@@ -4,6 +4,12 @@ use std::{
     // iter::Peekable,
 };
 
+use crate::{
+    executor::instruction::{Instruction, execute_instruction},
+    lexer::{LexError, Lexer, Token},
+    parser::{InstructionBridge, ParseError, Parser, TokenBridge},
+};
+
 mod executor;
 mod lexer;
 mod parser;
@@ -18,52 +24,101 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("{:?} > ", std::env::current_dir()?);
         stdout.flush().unwrap();
         stdin_reader.read_line(&mut s).unwrap();
-        let char_vec: Vec<char> = s.chars().collect();
-        match lexer::lex(char_vec.iter().copied().peekable()) {
-            Ok(Some(v)) => {
-                // println!("{v:?}");
-                match parser::parse(v.into_iter().peekable()) {
-                    Err(e) => {
-                        println!("{e:?}");
-                        s.clear();
-                        print!(" ");
-                        continue 'ic;
-                    }
-                    Ok(None) => {
-                        print!(">");
-                        continue 'ic;
-                    }
-                    Ok(Some(instructions)) => {
-                        s.clear();
-                        for instruction in instructions {
-                            match executor::instruction::execute_instruction(
-                                instruction,
-                                &mut variable_environment,
-                            ) {
-                                Ok(()) => print!(" "),
-                                Err(e) => {
-                                    println!("{e:?}");
-                                    s.clear();
-                                    print!(" ");
-                                    continue 'ic;
-                                }
-                            }
+
+        match verb_instructions(s.chars()) {
+            Err(err) => {
+                eprintln!("{err:?}");
+                return Ok(());
+            }
+            Ok(instructions) => {
+                for instruction in instructions {
+                    match execute_instruction(instruction, &mut variable_environment) {
+                        Ok(()) => (),
+                        Err(err) => {
+                            eprintln!("{err:?}");
+                            return Ok(());
                         }
                     }
                 }
-            }
-            Err(e) => {
-                println!("{e:?}");
                 s.clear();
-                print!(" ");
-                continue 'ic;
-            }
-            Ok(None) => {
-                print!(">");
-                continue 'ic;
             }
         }
+        // let char_vec: Vec<char> = s.chars().collect();
+        // match lexer::lex(char_vec.iter().copied().peekable()) {
+        //     Ok(Some(v)) => {
+        //         // println!("{v:?}");
+        //         match parser::parse(v.into_iter().peekable()) {
+        //             Err(e) => {
+        //                 println!("{e:?}");
+        //                 s.clear();
+        //                 print!(" ");
+        //                 continue 'ic;
+        //             }
+        //             Ok(None) => {
+        //                 print!(">");
+        //                 continue 'ic;
+        //             }
+        //             Ok(Some(instructions)) => {
+        //                 s.clear();
+        //                 for instruction in instructions {
+        //                     match executor::instruction::execute_instruction(
+        //                         instruction,
+        //                         &mut variable_environment,
+        //                     ) {
+        //                         Ok(()) => print!(" "),
+        //                         Err(e) => {
+        //                             println!("{e:?}");
+        //                             s.clear();
+        //                             print!(" ");
+        //                             continue 'ic;
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     Err(e) => {
+        //         println!("{e:?}");
+        //         s.clear();
+        //         print!(" ");
+        //         continue 'ic;
+        //     }
+        //     Ok(None) => {
+        //         print!(">");
+        //         continue 'ic;
+        //     }
+        // }
     }
+    // Ok(())
+}
+
+#[derive(Debug)]
+struct VerbInstructionsError {
+    message: String,
+}
+
+fn verb_instructions<I>(iter: I) -> Result<Vec<Instruction>, VerbInstructionsError>
+where
+    I: Iterator<Item = char>,
+{
+    let lexer = Lexer::new(iter);
+    let mut token_bridge = TokenBridge::new(lexer);
+    let parser = Parser::new(&mut token_bridge);
+    let mut instruction_bridge = InstructionBridge::new(parser);
+    let instructions = (&mut instruction_bridge).collect::<Vec<Instruction>>();
+    let parser_error = instruction_bridge.take_error();
+    let lexer_error = token_bridge.take_error();
+    if let Some(err) = lexer_error {
+        return Err(VerbInstructionsError {
+            message: format!("{err:?}"),
+        });
+    }
+    if let Some(err) = parser_error {
+        return Err(VerbInstructionsError {
+            message: format!("{err:?}"),
+        });
+    }
+    Ok(instructions)
 }
 
 // enum VariableValue {
