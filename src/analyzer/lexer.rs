@@ -1,11 +1,11 @@
 //! Provides the notable types Lexer and LexError.
 
-use std::iter::Peekable;
+use std::{hint::unreachable_unchecked, iter::Peekable};
 
-pub use super::AnalyzerError;
+use crate::analyzer::AnalyzerError;
 
-mod token;
-pub use token::{Token, TokenDelimeter, TokenKeyword};
+pub mod token;
+use token::{Token, TokenDelimeter};
 
 #[derive(Debug)]
 pub struct LexError {
@@ -27,7 +27,7 @@ where
     iter: Peekable<I::IntoIter>,
 }
 
-impl<I, E> Lexer<I, E>
+impl<I, E: std::fmt::Debug> Lexer<I, E>
 where
     I: IntoIterator<Item = Result<char, AnalyzerError<E>>>,
 {
@@ -37,9 +37,12 @@ where
         }
     }
     fn lex(&mut self) -> Option<Result<Token, AnalyzerError<E>>> {
-        match self.iter.next()? {
-            Err(e) => Some(Err(e)),
-            Ok(ch) => Some(self.lex_token(ch)),
+        loop {
+            return match self.iter.next()? {
+                Err(e) => Some(Err(e)),
+                Ok(ch) if ch.is_whitespace() => continue,
+                Ok(ch) => Some(self.lex_token(ch)),
+            };
         }
     }
     /// Similar to next_char, flattens a None from the source iterator into a
@@ -70,16 +73,7 @@ where
     }
     fn lex_token(&mut self, first_char: char) -> Result<Token, AnalyzerError<E>> {
         match first_char {
-            ' ' | '\t' | '\n' | '\r' => {
-                while self
-                    .next_char_if(|ch| match ch {
-                        ' ' | '\t' | '\n' | '\r' => true,
-                        _ => false,
-                    })?
-                    .is_some()
-                {}
-                Ok(Token::Delimeter(TokenDelimeter::Whitespace))
-            }
+            ' ' | '\t' | '\n' | '\r' => unreachable!(),
             '"' => self
                 .lex_string(0, false)
                 .map(|string| Token::String(string)),
@@ -98,7 +92,7 @@ where
             }
             ch @ '0'..='9' => {
                 let number_string = String::from(ch);
-                self.lex_number(number_string).map(|n| Token::Number(n))
+                self.lex_number(number_string)
             }
             ch @ ('a'..='z' | 'A'..='Z' | '_') => {
                 let mut lexeme = String::from(ch);
@@ -201,23 +195,42 @@ where
         Ok(())
     }
 
-    fn lex_number(&mut self, mut number_string: String) -> Result<i64, AnalyzerError<E>> {
+    fn lex_number(&mut self, mut number_string: String) -> Result<Token, AnalyzerError<E>> {
+        let mut is_float = false;
         while let Some(ch) = self.next_char_if(|ch| match ch {
             '0'..='9' => true,
             _ => false,
         })? {
             number_string.push(ch);
         }
-        match number_string.parse::<i64>() {
-            Ok(n) => Ok(n),
-            Err(_) => Err(AnalyzerError::Lexer(LexError {
-                message: format!("Invalid (i64) number: {:?}", number_string),
-            })),
+        if let Some('.') = self.next_char_if_eq('.')? {
+            is_float = true;
+            while let Some(ch) = self.next_char_if(|ch| match ch {
+                '0'..='9' => true,
+                _ => false,
+            })? {
+                number_string.push(ch);
+            }
+        }
+        if is_float {
+            match number_string.parse::<f64>() {
+                Ok(n) => Ok(Token::Float(n)),
+                Err(_) => Err(AnalyzerError::Lexer(LexError {
+                    message: format!("Invalid (f64) number: {:?}", number_string),
+                })),
+            }
+        } else {
+            match number_string.parse::<i64>() {
+                Ok(n) => Ok(Token::Integer(n)),
+                Err(_) => Err(AnalyzerError::Lexer(LexError {
+                    message: format!("Invalid (i64) number: {:?}", number_string),
+                })),
+            }
         }
     }
 }
 
-impl<I, E> Iterator for Lexer<I, E>
+impl<I, E: std::fmt::Debug> Iterator for Lexer<I, E>
 where
     I: IntoIterator<Item = Result<char, AnalyzerError<E>>>,
 {

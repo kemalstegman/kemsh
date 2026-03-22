@@ -1,34 +1,9 @@
 use std::collections::HashMap;
 
-pub type VariableName = String;
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub enum VariableValue {
-    LiteralString(String),
-    LiteralInteger(i64),
-    LiteralFloating(f64),
-    LiteralBoolean(bool),
-}
-
-impl VariableValue {
-    pub fn kind(&self) -> VariableKind {
-        match self {
-            VariableValue::LiteralString(_) => VariableKind::LiteralString,
-            VariableValue::LiteralInteger(_) => VariableKind::LiteralInteger,
-            VariableValue::LiteralFloating(_) => VariableKind::LiteralFloating,
-            VariableValue::LiteralBoolean(_) => VariableKind::LiteralBoolean,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VariableKind {
-    LiteralString,
-    LiteralInteger,
-    LiteralFloating,
-    LiteralBoolean,
-}
+use crate::{
+    abstract_syntax_tree::{VariableKind, VariableName, VariableValue},
+    executor::ExecutionError,
+};
 
 #[derive(Debug)]
 enum Variable {
@@ -70,12 +45,6 @@ impl Variable {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct EnvironmentError {
-    pub message: String,
-}
-
 pub struct Environment(Vec<HashMap<VariableName, Variable>>);
 
 impl Environment {
@@ -100,13 +69,13 @@ impl Environment {
     pub fn pop_scope(&mut self) {
         self.0.pop();
     }
-    pub fn get(&self, name: &VariableName) -> Result<&VariableValue, EnvironmentError> {
+    pub fn get(&self, name: &VariableName) -> Result<&VariableValue, ExecutionError> {
         for scope in self.0.iter().rev() {
             match scope.get(name) {
                 None => continue,
                 Some(variable) => match variable.get() {
                     None => {
-                        return Err(EnvironmentError {
+                        return Err(ExecutionError {
                             message: "variable is not initialized".to_string(),
                         });
                     }
@@ -114,7 +83,7 @@ impl Environment {
                 },
             }
         }
-        Err(EnvironmentError {
+        Err(ExecutionError {
             message: "variable does not exist".to_string(),
         })
     }
@@ -122,13 +91,13 @@ impl Environment {
         &mut self,
         name: &VariableName,
         value: VariableValue,
-    ) -> Result<(), EnvironmentError> {
+    ) -> Result<(), ExecutionError> {
         for scope in self.0.iter_mut().rev() {
             match scope.get_mut(name) {
                 None => continue,
                 Some(variable) => match variable.assign(value) {
                     Err(()) => {
-                        return Err(EnvironmentError {
+                        return Err(ExecutionError {
                             message: "variable type does not match value".to_string(),
                         });
                     }
@@ -136,20 +105,20 @@ impl Environment {
                 },
             }
         }
-        Err(EnvironmentError {
+        Err(ExecutionError {
             message: "variable does not exist".to_string(),
         })
     }
-    fn declare(&mut self, name: VariableName, variable: Variable) -> Result<(), EnvironmentError> {
+    fn declare(&mut self, name: VariableName, variable: Variable) -> Result<(), ExecutionError> {
         match self.0.last_mut() {
             None => {
-                return Err(EnvironmentError {
+                return Err(ExecutionError {
                     message: "environment has no scopes".to_string(),
                 });
             }
             Some(scope) => {
                 if scope.contains_key(&name) {
-                    return Err(EnvironmentError {
+                    return Err(ExecutionError {
                         message: "variable already declared".to_string(),
                     });
                 } else {
@@ -159,21 +128,21 @@ impl Environment {
             }
         }
     }
-    pub fn declare_typeless(&mut self, name: VariableName) -> Result<(), EnvironmentError> {
+    pub fn declare_typeless(&mut self, name: VariableName) -> Result<(), ExecutionError> {
         self.declare(name, Variable::DeclaredTypeless)
     }
     pub fn declare_typed(
         &mut self,
         name: VariableName,
         kind: VariableKind,
-    ) -> Result<(), EnvironmentError> {
+    ) -> Result<(), ExecutionError> {
         self.declare(name, Variable::DeclaredTyped(kind))
     }
     pub fn declare_initialized(
         &mut self,
         name: VariableName,
         value: VariableValue,
-    ) -> Result<(), EnvironmentError> {
+    ) -> Result<(), ExecutionError> {
         self.declare(name, Variable::Initialized(value))
     }
 }

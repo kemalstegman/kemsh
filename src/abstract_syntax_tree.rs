@@ -13,6 +13,7 @@
 // ??break [?expr];??
 // ??fn??
 
+#[derive(Debug)]
 pub enum Expression {
     Variable(VariableName),
     Value(VariableValue),
@@ -21,6 +22,7 @@ pub enum Expression {
     // Block,
 }
 
+#[derive(Debug)]
 pub enum Operation {
     Add { lhs: Expression, rhs: Expression },
     Subtract { lhs: Expression, rhs: Expression },
@@ -34,7 +36,7 @@ pub type VariableName = String;
 pub enum VariableValue {
     LiteralString(String),
     LiteralInteger(i64),
-    LiteralFloating(f64),
+    // LiteralFloating(f64),
     LiteralBoolean(bool),
 }
 
@@ -43,7 +45,7 @@ impl VariableValue {
         match self {
             VariableValue::LiteralString(_) => VariableKind::LiteralString,
             VariableValue::LiteralInteger(_) => VariableKind::LiteralInteger,
-            VariableValue::LiteralFloating(_) => VariableKind::LiteralFloating,
+            // VariableValue::LiteralFloating(_) => VariableKind::LiteralFloating,
             VariableValue::LiteralBoolean(_) => VariableKind::LiteralBoolean,
         }
     }
@@ -57,25 +59,35 @@ pub enum VariableKind {
     LiteralBoolean,
 }
 
+#[derive(Debug)]
 pub enum Instruction {
     Let(LetInstruction),
     Set(SetInstruction),
     ChangeDirectory(ChangeDirectoryInstruction),
     Echo(EchoInstruction),
+    Exit(ExitInstruction),
 }
 
+#[derive(Debug)]
 pub struct LetInstruction {
     pub variable_name: VariableName,
     pub variable_kind: Option<VariableKind>,
     pub expression: Option<Expression>,
 }
+#[derive(Debug)]
 pub struct SetInstruction {
     pub variable_name: VariableName,
     pub expression: Expression,
 }
+#[derive(Debug)]
 pub struct ChangeDirectoryInstruction {
     pub expression: Expression,
 }
+#[derive(Debug)]
 pub struct EchoInstruction {
     pub expressions: Vec<Expression>,
+}
+#[derive(Debug)]
+pub struct ExitInstruction {
+    pub expression: Expression,
 }

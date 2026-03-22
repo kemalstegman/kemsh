@@ -1,10 +1,12 @@
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum Token {
+    VariableKind(TokenVariableKind),
     VariableName(String),
     Keyword(TokenKeyword),
     Boolean(bool),
     String(String),
-    Number(i64),
+    Integer(i64),
+    Float(f64),
     Delimeter(TokenDelimeter),
 }
 
@@ -20,14 +22,19 @@ impl Token {
             "run" => Self::Keyword(TokenKeyword::Run),
             "spawn" => Self::Keyword(TokenKeyword::Spawn),
             "echo" => Self::Keyword(TokenKeyword::Echo),
+            "cd" => Self::Keyword(TokenKeyword::Cd),
+            "exit" => Self::Keyword(TokenKeyword::Exit),
             "true" => Self::Boolean(true),
             "false" => Self::Boolean(false),
+            "integer" => Self::VariableKind(TokenVariableKind::Integer),
+            "string" => Self::VariableKind(TokenVariableKind::String),
+            "bool" => Self::VariableKind(TokenVariableKind::Boolean),
             _ => Self::VariableName(string),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum TokenKeyword {
     Let,
     For,
@@ -38,11 +45,19 @@ pub enum TokenKeyword {
     Run,
     Spawn,
     Echo,
+    Cd,
+    Exit,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum TokenVariableKind {
+    Integer,
+    String,
+    Boolean,
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum TokenDelimeter {
-    Whitespace,
     ExclamationMark,    // !
     Carret,             // ^
     Ampersand,          // &

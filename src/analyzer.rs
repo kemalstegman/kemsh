@@ -4,8 +4,12 @@ use lexer::{LexError, Lexer};
 pub mod parser;
 use parser::{ParseError, Parser};
 
-use super::abstract_syntax_tree::Instruction;
+use crate::{
+    abstract_syntax_tree::Instruction,
+    analyzer::lexer::token::{Token, TokenDelimeter},
+};
 
+#[derive(Debug)]
 pub enum AnalyzerError<E> {
     CharInput(E),
     Lexer(lexer::LexError),
@@ -13,7 +17,9 @@ pub enum AnalyzerError<E> {
     Incomplete,
 }
 
-pub fn analyze<I, E>(iter: I) -> impl Iterator<Item = Result<Instruction, AnalyzerError<E>>>
+pub fn analyze<I, E: std::fmt::Debug>(
+    iter: I,
+) -> impl Iterator<Item = Result<Instruction, AnalyzerError<E>>>
 where
     I: IntoIterator<Item = Result<char, E>>,
 {

@@ -1,12 +1,11 @@
 use std::iter::Peekable;
 
-use crate::abstract_syntax_tree::{EchoInstruction, Expression, LetInstruction};
-use crate::analyzer::lexer::{TokenDelimeter, TokenKeyword};
-
-pub use super::AnalyzerError;
-
-use super::super::abstract_syntax_tree::Instruction;
-use super::lexer::{LexError, Token};
+use crate::abstract_syntax_tree::{
+    ChangeDirectoryInstruction, EchoInstruction, ExitInstruction, Expression, Instruction,
+    LetInstruction, SetInstruction, VariableKind, VariableValue,
+};
+use crate::analyzer::AnalyzerError;
+use crate::analyzer::lexer::token::{Token, TokenDelimeter, TokenKeyword, TokenVariableKind};
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -66,30 +65,155 @@ where
             Token::Keyword(TokenKeyword::Let) => match self.next_token()? {
                 Token::VariableName(variable_name) => match self.next_token()? {
                     Token::Delimeter(TokenDelimeter::Equal) => {
+                        let expression = self.parse_expression()?;
+                        match self.next_token()? {
+                            Token::Delimeter(TokenDelimeter::Semicolon) => {
+                                Ok(Instruction::Let(LetInstruction {
+                                    variable_name,
+                                    variable_kind: None,
+                                    expression: Some(expression),
+                                }))
+                            }
+                            _ => Err(AnalyzerError::Parser(ParseError {
+                                message: String::from("expected ;"),
+                            })),
+                        }
+                    }
+                    Token::Delimeter(TokenDelimeter::Colon) => {
+                        let variable_kind = self.parse_variable_kind()?;
+                        match self.next_token()? {
+                            Token::Delimeter(TokenDelimeter::Equal) => {
+                                let expression = self.parse_expression()?;
+                                match self.next_token()? {
+                                    Token::Delimeter(TokenDelimeter::Semicolon) => {
+                                        Ok(Instruction::Let(LetInstruction {
+                                            variable_name,
+                                            variable_kind: Some(variable_kind),
+                                            expression: Some(expression),
+                                        }))
+                                    }
+                                    _ => Err(AnalyzerError::Parser(ParseError {
+                                        message: String::from("expected ;"),
+                                    })),
+                                }
+                            }
+                            Token::Delimeter(TokenDelimeter::Semicolon) => {
+                                Ok(Instruction::Let(LetInstruction {
+                                    variable_name,
+                                    variable_kind: Some(variable_kind),
+                                    expression: None,
+                                }))
+                            }
+                            _ => Err(AnalyzerError::Parser(ParseError {
+                                message: String::from("expected = or ;"),
+                            })),
+                        }
+                    }
+                    Token::Delimeter(TokenDelimeter::Semicolon) => {
                         Ok(Instruction::Let(LetInstruction {
                             variable_name,
                             variable_kind: None,
-                            expression: Some(self.parse_expression()?),
+                            expression: None,
                         }))
                     }
                     _ => Err(AnalyzerError::Parser(ParseError {
-                        message: String::from("expected ="),
+                        message: String::from("expected = or : or ;"),
                     })),
                 },
                 _ => Err(AnalyzerError::Parser(ParseError {
                     message: String::from("expected variable name"),
                 })),
             },
-            Token::Keyword(TokenKeyword::Echo) => Ok(Instruction::Echo(EchoInstruction {
-                expressions: vec![self.parse_expression()?],
-            })),
+            Token::VariableName(variable_name) => match self.next_token()? {
+                Token::Delimeter(TokenDelimeter::Equal) => {
+                    let expression = self.parse_expression()?;
+                    match self.next_token()? {
+                        Token::Delimeter(TokenDelimeter::Semicolon) => {
+                            Ok(Instruction::Set(SetInstruction {
+                                variable_name,
+                                expression,
+                            }))
+                        }
+                        _ => Err(AnalyzerError::Parser(ParseError {
+                            message: String::from("expected ;"),
+                        })),
+                    }
+                }
+                _ => Err(AnalyzerError::Parser(ParseError {
+                    message: String::from("expected ="),
+                })),
+            },
+            Token::Keyword(TokenKeyword::Echo) => {
+                let expression = self.parse_expression()?;
+                match self.next_token()? {
+                    Token::Delimeter(TokenDelimeter::Semicolon) => {
+                        Ok(Instruction::Echo(EchoInstruction {
+                            expressions: vec![expression],
+                        }))
+                    }
+                    _ => Err(AnalyzerError::Parser(ParseError {
+                        message: String::from("expected ;"),
+                    })),
+                }
+            }
+            Token::Keyword(TokenKeyword::Cd) => {
+                let expression = self.parse_expression()?;
+                match self.next_token()? {
+                    Token::Delimeter(TokenDelimeter::Semicolon) => {
+                        Ok(Instruction::ChangeDirectory(ChangeDirectoryInstruction {
+                            expression,
+                        }))
+                    }
+                    _ => Err(AnalyzerError::Parser(ParseError {
+                        message: String::from("expected ;"),
+                    })),
+                }
+            }
+            Token::Keyword(TokenKeyword::Exit) => {
+                if self
+                    .next_token_if_eq(&Token::Delimeter(TokenDelimeter::Semicolon))?
+                    .is_some()
+                {
+                    Ok(Instruction::Exit(ExitInstruction {
+                        expression: Expression::Value(VariableValue::LiteralInteger(0)),
+                    }))
+                } else {
+                    let expression = self.parse_expression()?;
+                    match self.next_token()? {
+                        Token::Delimeter(TokenDelimeter::Semicolon) => {
+                            Ok(Instruction::Exit(ExitInstruction { expression }))
+                        }
+                        _ => Err(AnalyzerError::Parser(ParseError {
+                            message: String::from("expected ;"),
+                        })),
+                    }
+                }
+            }
             tok => Err(AnalyzerError::Parser(ParseError {
                 message: format!("Token unimplemented: {tok:?}"),
             })),
         }
     }
     fn parse_expression(&mut self) -> Result<Expression, AnalyzerError<E>> {
-        todo!()
+        match self.next_token()? {
+            Token::Boolean(boolean) => {
+                Ok(Expression::Value(VariableValue::LiteralBoolean(boolean)))
+            }
+            Token::Integer(number) => Ok(Expression::Value(VariableValue::LiteralInteger(number))),
+            Token::String(string) => Ok(Expression::Value(VariableValue::LiteralString(string))),
+            Token::VariableName(variable_name) => Ok(Expression::Variable(variable_name)),
+            _ => todo!(),
+        }
+    }
+    fn parse_variable_kind(&mut self) -> Result<VariableKind, AnalyzerError<E>> {
+        match self.next_token()? {
+            Token::VariableKind(kind) => match kind {
+                TokenVariableKind::Boolean => Ok(VariableKind::LiteralBoolean),
+                TokenVariableKind::Integer => Ok(VariableKind::LiteralInteger),
+                TokenVariableKind::String => Ok(VariableKind::LiteralString),
+            },
+            _ => todo!(),
+        }
     }
 }
 
