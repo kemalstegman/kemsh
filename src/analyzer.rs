@@ -4,7 +4,7 @@ use lexer::{LexError, Lexer};
 pub mod parser;
 use parser::{ParseError, Parser};
 
-use crate::instructions::Instruction;
+use super::abstract_syntax_tree::Instruction;
 
 pub enum AnalyzerError<E> {
     CharInput(E),

@@ -1,8 +1,11 @@
 use std::iter::Peekable;
 
+use crate::abstract_syntax_tree::{EchoInstruction, Expression, LetInstruction};
+use crate::analyzer::lexer::{TokenDelimeter, TokenKeyword};
+
 pub use super::AnalyzerError;
 
-use super::super::instructions::Instruction;
+use super::super::abstract_syntax_tree::Instruction;
 use super::lexer::{LexError, Token};
 
 #[derive(Debug)]
@@ -59,6 +62,33 @@ where
         self.next_token_if(|peek_tok| peek_tok == tok)
     }
     fn parse_instruction(&mut self, first_token: Token) -> Result<Instruction, AnalyzerError<E>> {
+        match first_token {
+            Token::Keyword(TokenKeyword::Let) => match self.next_token()? {
+                Token::VariableName(variable_name) => match self.next_token()? {
+                    Token::Delimeter(TokenDelimeter::Equal) => {
+                        Ok(Instruction::Let(LetInstruction {
+                            variable_name,
+                            variable_kind: None,
+                            expression: Some(self.parse_expression()?),
+                        }))
+                    }
+                    _ => Err(AnalyzerError::Parser(ParseError {
+                        message: String::from("expected ="),
+                    })),
+                },
+                _ => Err(AnalyzerError::Parser(ParseError {
+                    message: String::from("expected variable name"),
+                })),
+            },
+            Token::Keyword(TokenKeyword::Echo) => Ok(Instruction::Echo(EchoInstruction {
+                expressions: vec![self.parse_expression()?],
+            })),
+            tok => Err(AnalyzerError::Parser(ParseError {
+                message: format!("Token unimplemented: {tok:?}"),
+            })),
+        }
+    }
+    fn parse_expression(&mut self) -> Result<Expression, AnalyzerError<E>> {
         todo!()
     }
 }
