@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Token {
     VariableName(String),
     Keyword(TokenKeyword),
@@ -27,7 +27,7 @@ impl Token {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TokenKeyword {
     Let,
     For,
@@ -40,9 +40,9 @@ pub enum TokenKeyword {
     Echo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TokenDelimeter {
-    // Whitespace,
+    Whitespace,
     ExclamationMark,    // !
     Carret,             // ^
     Ampersand,          // &
