@@ -1,0 +1,80 @@
+// Rusty SHell (rsh)
+// STEGman SHell (stegsh)
+
+// these are comments
+/* so are
+these */
+
+// variables are defined by the
+// rusty let syntax
+
+let x = 5
+
+// no semicolons!
+// you can declare types too
+
+let y: u32 = 10
+
+// types aren't necessary except for numbers
+// i32 are the default numbers
+
+// arrays or lists are made like this
+
+let narray: [i32] = [5, 4, 3]
+
+// no more diving into commands
+// they must be called using `exec`
+
+exec "ls"
+
+// notice the string?
+// you can also use an array of strings
+// speaking of strings, they are better now:
+
+let raw_string = "123/^%^{}"
+
+// everything is as you type
+// "but what if I want a quote"
+// then use hashtags to extend the divisor:
+
+let hraw_string = #"I can use these now: """""!!"#
+
+// the number of # you start with is the number you end with
+
+// but escaping can be opted into:
+
+let istring = e"y equals {y} which is cool"
+
+// istring is equal to "y equals 10 which is cool"
+// this also means you have to backslash escape symbols
+// you give and you take
+
+
+
+/* to add explanation:
+ *   blocks {}
+ *   if, for, while, loop
+ *   fileprocess
+ *     really define what a process is
+ *   table
+ *   piping |
+ */
+
+/* todo
+ *   exec blocking
+ *   redirection
+ */
+
+/* if [expression] {}
+ * for [expression] {}
+ * while [expression] {}
+ * loop {}
+ * return [expression?];
+ * break [expression?];
+ * run
+ * spawn
+ */
+
+/* | piping
+ * > stdout into stdin
+ */

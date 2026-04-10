@@ -1,0 +1,21 @@
+
+let x = 50;
+
+let y: u32 = 10
+
+let narray: [i32] = [5, 4, 3]
+
+exec "ls"
+
+let raw_string = "123/^%^{}"
+
+let hraw_string = #"I can use these now: "+""""!!"#
+
+// "y equals 10 which is cool"
+let istring = e"y equals {y} which is cool"
+
+let x = a + 1;
+let y = a + 1 + b;
+
+block (process "ls" | process ["grep", #""bash""#]);
+spawn "ls";
