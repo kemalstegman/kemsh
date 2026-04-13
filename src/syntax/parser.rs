@@ -75,8 +75,15 @@ where
             Token::Float(n) => Ok(Expression::Concrete(Concrete::Float(n))),
             Token::Integer(n) => Ok(Expression::Concrete(Concrete::Integer(n))),
             Token::LiteralString(s) => Ok(Expression::Concrete(Concrete::String(s))),
+            Token::Reserved(ReservedLexeme::True) => {
+                Ok(Expression::Concrete(Concrete::Boolean(true)))
+            }
+            Token::Reserved(ReservedLexeme::False) => {
+                Ok(Expression::Concrete(Concrete::Boolean(false)))
+            }
             Token::Unreserved(i) => Ok(Expression::Identifier(Identifier(i))),
             Token::Reserved(ReservedLexeme::Let) => Ok(self.parse_nud_let()?),
+            Token::Reserved(ReservedLexeme::Exit) => Ok(self.parse_nud_exit()?),
             _ => Err(ParserError::Generic {
                 message: format!("unexpected token: {tok:?}"),
             }),
@@ -119,6 +126,21 @@ where
                 lhs,
                 rhs: None,
             })))
+        }
+    }
+    fn parse_nud_exit(&mut self) -> Result<Expression, ParserError<E>> {
+        let ptok = self.iter.bubble_peek()?.ok_or(ParserError::Incomplete)?;
+        if let Token::Delimeter(Delimeter::Semicolon) = ptok {
+            Ok(Expression::Operation(Box::new(Operation::Exit(
+                Expression::Concrete(Concrete::Integer(0)),
+            ))))
+        } else {
+            let Some(Ok(tok)) = self.iter.next() else {
+                unreachable!("validated by peek")
+            };
+            Ok(Expression::Operation(Box::new(Operation::Exit(
+                self.parse_expression(tok, Precedence::Prefix)?,
+            ))))
         }
     }
     pub fn parse_led(&mut self, lhs: Expression, tok: Token) -> Result<Expression, ParserError<E>> {

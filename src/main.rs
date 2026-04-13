@@ -5,11 +5,15 @@ use std::{
 
 use kemsh::{
     ast::Expression,
-    executor::Executor,
+    executor::{Executor, ExecutorError},
     syntax::{lexer::LexerError, parser::ParserError, syntax},
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    std::process::exit(repl()? as i32)
+}
+
+fn repl() -> Result<i64, Box<dyn std::error::Error>> {
     let mut stdout = stdout().lock();
     let mut stdin_reader = BufReader::new(stdin().lock());
     let mut s = String::new();
@@ -41,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for expression in expressions {
             match executor.execute_top_level_expression(expression) {
                 Ok(()) => (),
+                Err(ExecutorError::Exit(status)) => return Ok(status),
                 Err(err) => {
                     println!("execution error: {err:?}");
                     break;
