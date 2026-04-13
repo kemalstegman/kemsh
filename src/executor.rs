@@ -209,6 +209,12 @@ impl Executor {
                         }),
                     }
                 }
+                Operation::Exit(expr) => match self.execute_expression(expr)? {
+                    NonVoid(Concrete::Integer(st)) => Err(ExecutorError::Exit(st)),
+                    conc => Err(ExecutorError::Generic {
+                        message: format!("invalid exit operand {:?}", conc.kind(),),
+                    }),
+                },
                 _ => todo!(),
             },
         }
@@ -218,4 +224,5 @@ impl Executor {
 #[derive(Debug)]
 pub enum ExecutorError {
     Generic { message: String },
+    Exit(i64),
 }
