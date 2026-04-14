@@ -1,21 +1,39 @@
-mod concrete;
-pub use concrete::*;
+use crate::executor::concrete::ConcreteKind;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
-    Concrete(Concrete),
+    Literal(Literal),
+    CompoundLiteral(CompoundLiteral),
     Identifier(Identifier),
     Operation(Box<Operation>),
     BraceBlock(BraceBlock),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum Literal {
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    RawString(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum CompoundLiteral {
+    // EscapedString,
+    List(Vec<Expression>),
+    Map(Vec<(Expression, Expression)>),
+}
+
+#[derive(Debug, Clone)]
 pub struct Identifier(pub String);
 
-#[derive(Debug)]
-pub struct BraceBlock(pub Vec<Expression>, pub Option<Box<Expression>>);
+#[derive(Debug, Clone)]
+pub struct BraceBlock {
+    pub expressions: Vec<Expression>,
+    pub evaluate_to_tail_expression: bool,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Operation {
     // infix
     /// add two integers or floats, or concatenate two strings
@@ -63,13 +81,13 @@ pub enum Operation {
     Exit(Expression),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DeclareLValue {
     pub identifier: Identifier,
     pub type_annotation: Option<ConcreteKind>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MutableLValue {
     pub identifier: Identifier,
     pub type_annotation: Option<ConcreteKind>,
