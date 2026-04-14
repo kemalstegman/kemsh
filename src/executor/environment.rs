@@ -1,7 +1,97 @@
-use std::collections::HashMap;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::{Rc, Weak},
+};
 
-use crate::ast::{Concrete, ConcreteKind};
+use crate::executor::concrete::{Concrete, ConcreteKind};
 
+#[derive(Debug)]
+pub struct Environment(Vec<Rc<RefCell<HashMap<String, Variable>>>>);
+
+impl Environment {
+    pub fn new_with_default_globals() -> Self {
+        let mut environment = Self(Vec::new());
+        environment.push_scope();
+        environment
+            .declare(
+                String::from("_KEMSH_VERSION"),
+                Variable::Initialized(Concrete::String(Rc::from("0.3.0"))),
+            )
+            .unwrap();
+        environment
+    }
+    pub fn from_weak_ignore_dropped(weak_env: &WeakEnvironment) -> Self {
+        Self(weak_env.0.iter().filter_map(|w| w.upgrade()).collect())
+    }
+    pub fn weak(&self) -> WeakEnvironment {
+        WeakEnvironment(Rc::from(
+            self.0.iter().map(|r| Rc::downgrade(r)).collect::<Vec<_>>(),
+        ))
+    }
+    pub fn push_scope(&mut self) {
+        self.0.push(Rc::new(RefCell::new(HashMap::new())));
+    }
+    pub fn pop_scope(&mut self) -> Option<Rc<RefCell<HashMap<String, Variable>>>> {
+        self.0.pop()
+    }
+    pub fn declare(&mut self, name: String, variable: Variable) -> Result<(), EnvironmentError> {
+        match self.0.last() {
+            None => Err(EnvironmentError::NoScopes),
+            Some(scope) => {
+                if scope.borrow().contains_key(&name) {
+                    Err(EnvironmentError::AlreadyDeclared)
+                } else {
+                    scope.borrow_mut().insert(name, variable);
+                    Ok(())
+                }
+            }
+        }
+    }
+    pub fn undeclare(&mut self, name: &str) -> Result<Option<Concrete>, EnvironmentError> {
+        match self.0.last() {
+            None => Err(EnvironmentError::NoScopes),
+            Some(scope) => match scope.borrow_mut().remove(name) {
+                None => Err(EnvironmentError::NotDeclared),
+                Some(Variable::Initialized(concrete)) => Ok(Some(concrete)),
+                Some(Variable::Typed(_) | Variable::Declared) => Ok(None),
+            },
+        }
+    }
+    pub fn get(&self, name: &str) -> Result<Variable, EnvironmentError> {
+        for scope in self.0.iter().rev() {
+            if let Some(variable) = scope.borrow().get(name) {
+                return Ok(variable.clone());
+            }
+        }
+        Err(EnvironmentError::NotDeclared)
+    }
+    pub fn assign(
+        &mut self,
+        name: &str,
+        concrete: Concrete,
+    ) -> Result<Option<Concrete>, EnvironmentError> {
+        for scope in self.0.iter().rev() {
+            if let Some(variable) = scope.borrow_mut().get_mut(name) {
+                return variable.replace(concrete);
+            }
+        }
+        Err(EnvironmentError::NotDeclared)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum EnvironmentError {
+    NoScopes,
+    NotDeclared,
+    AlreadyDeclared,
+    KindNotMatch,
+}
+
+#[derive(Debug, Clone)]
+pub struct WeakEnvironment(Rc<[Weak<RefCell<HashMap<String, Variable>>>]>);
+
+#[derive(Debug, Clone)]
 pub enum Variable {
     Declared,
     Typed(ConcreteKind),
@@ -9,14 +99,14 @@ pub enum Variable {
 }
 
 impl Variable {
-    pub fn get(&mut self) -> Option<&mut Concrete> {
+    pub fn concrete(self) -> Option<Concrete> {
         match self {
             Variable::Declared => None,
             Variable::Typed(_) => None,
             Variable::Initialized(concrete) => Some(concrete),
         }
     }
-    pub fn assign(&mut self, mut concrete: Concrete) -> Result<Option<Concrete>, String> {
+    fn replace(&mut self, mut concrete: Concrete) -> Result<Option<Concrete>, EnvironmentError> {
         match self {
             Variable::Declared => {
                 *self = Variable::Initialized(concrete);
@@ -27,7 +117,7 @@ impl Variable {
                     *self = Variable::Initialized(concrete);
                     Ok(None)
                 } else {
-                    Err(String::from("type does not match"))
+                    Err(EnvironmentError::KindNotMatch)
                 }
             }
             Variable::Initialized(held) => {
@@ -35,77 +125,9 @@ impl Variable {
                     std::mem::swap(held, &mut concrete);
                     Ok(Some(concrete))
                 } else {
-                    Err(String::from("type does not match"))
+                    Err(EnvironmentError::KindNotMatch)
                 }
             }
         }
-    }
-}
-
-pub struct Environment(Vec<HashMap<String, Variable>>);
-
-impl Environment {
-    pub fn new_with_default_globals() -> Self {
-        let mut environment = Self::new_no_scopes();
-        environment.push_scope();
-        environment
-            .declare(
-                String::from("_KEMSH_VERSION"),
-                Variable::Initialized(Concrete::String(String::from("0.2.0"))),
-            )
-            .unwrap();
-        environment
-    }
-    fn new_no_scopes() -> Self {
-        Self(Vec::new())
-    }
-    pub fn push_scope(&mut self) {
-        self.0.push(HashMap::new());
-    }
-    pub fn pop_scope(&mut self) {
-        self.0.pop();
-    }
-    pub fn declare(&mut self, name: String, variable: Variable) -> Result<(), String> {
-        match self.0.last_mut() {
-            None => Err(String::from("no scopes")),
-            Some(scope) => {
-                if scope.contains_key(&name) {
-                    Err(String::from("already declared"))
-                } else {
-                    scope.insert(name, variable);
-                    Ok(())
-                }
-            }
-        }
-    }
-    // pub fn assign(
-    //     &mut self,
-    //     name: &String,
-    //     concrete: Concrete,
-    // ) -> Result<Option<Concrete>, String> {
-    //     for scope in self.0.iter_mut().rev() {
-    //         if let Some(variable) = scope.get_mut(name) {
-    //             return variable.assign(concrete);
-    //         }
-    //     }
-    //     Err(String::from("variable not declared"))
-    // }
-    pub fn void_assign(&mut self, name: &str) -> Result<Option<Concrete>, String> {
-        match self.0.last_mut() {
-            None => Err(String::from("no scopes")),
-            Some(scope) => match scope.remove(name) {
-                None => Err(String::from("not declared")),
-                Some(Variable::Initialized(concrete)) => Ok(Some(concrete)),
-                Some(Variable::Typed(_) | Variable::Declared) => Ok(None),
-            },
-        }
-    }
-    pub fn get(&mut self, name: &str) -> Result<&mut Variable, String> {
-        for scope in self.0.iter_mut().rev() {
-            if let Some(variable) = scope.get_mut(name) {
-                return Ok(variable);
-            }
-        }
-        Err(String::from("variable not declared"))
     }
 }
