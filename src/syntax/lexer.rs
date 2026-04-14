@@ -37,6 +37,8 @@ pub mod token;
 
 use std::marker::PhantomData;
 
+use itertools::Itertools;
+
 use crate::{
     abstract_lookahead::ErrorBubbledNLookahead,
     syntax::lexer::token::{Delimeter, Lexeme, Token},
@@ -190,23 +192,22 @@ where
             });
         }
         let mut string = String::new();
-        'char_push: loop {
+        loop {
             match self.iter.next().ok_or(LexerError::Incomplete).flatten()? {
                 '"' => {
-                    for i in 0..delimeter_hashtags {
-                        match self.iter.next().ok_or(LexerError::Incomplete).flatten()? {
-                            '#' => (),
-                            ch => {
-                                string.push('"');
-                                for _ in 0..i {
-                                    string.push('#');
-                                }
-                                string.push(ch);
-                                continue 'char_push;
-                            }
-                        }
+                    let mut count = 0;
+                    while delimeter_hashtags > count
+                        && self.iter.bubble_next_if(|ch| *ch == '#')?.is_some()
+                    {
+                        count += 1;
                     }
-                    return Ok(string);
+                    if count == delimeter_hashtags {
+                        return Ok(string);
+                    }
+                    string.push('"');
+                    for _ in 0..count {
+                        string.push('#');
+                    }
                 }
                 ch => string.push(ch),
             }
