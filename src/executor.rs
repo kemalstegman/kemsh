@@ -1,17 +1,17 @@
-//! todo!() working directory
-
 mod environment;
 
 pub mod concrete;
 
 use std::{
+    collections::HashMap,
     env::{current_dir, set_current_dir},
+    path::{Path, PathBuf},
     process::Command,
     rc::Rc,
 };
 
 use crate::{
-    ast::{BraceBlock, Expression, Literal, Operation},
+    ast::{BraceBlock, CompoundLiteral, Expression, Literal, Operation},
     executor::{
         concrete::{Concrete, VoidConcrete},
         environment::{Environment, EnvironmentError, Variable},
@@ -20,20 +20,17 @@ use crate::{
 
 pub struct Executor {
     environment: Environment,
-    working_directory: Rc<str>,
+    working_directory: PathBuf,
 }
 impl Executor {
     pub fn new() -> Self {
         Self {
             environment: Environment::new_with_default_globals(),
-            working_directory: Rc::from(
-                current_dir()
-                    .unwrap()
-                    .into_os_string()
-                    .into_string()
-                    .unwrap(),
-            ),
+            working_directory: current_dir().unwrap(),
         }
+    }
+    pub fn working_directory(&self) -> &Path {
+        self.working_directory.as_path()
     }
     pub fn execute_top_level_expression(
         &mut self,
@@ -42,7 +39,7 @@ impl Executor {
         println!("{:?}", self.execute_expression(expression)?);
         Ok(())
     }
-    fn execute_expression(
+    pub fn execute_expression(
         &mut self,
         expression: Expression,
     ) -> Result<VoidConcrete, ExecutorError> {
@@ -53,7 +50,56 @@ impl Executor {
                 Literal::Integer(i) => Concrete::Integer(i),
                 Literal::RawString(s) => Concrete::String(Rc::from(s)),
             })),
-            Expression::CompoundLiteral(_) => todo!(),
+            Expression::CompoundLiteral(compound_literal) => match compound_literal {
+                CompoundLiteral::List(expressions) => {
+                    let mut concretes = Vec::new();
+                    for expression in expressions {
+                        match self.execute_expression(expression)? {
+                            VoidConcrete::Rife(concrete) => concretes.push(concrete),
+                            VoidConcrete::Void => {
+                                return Err(ExecutorError::Generic {
+                                    message: String::from("expected value from expression"),
+                                });
+                            }
+                        }
+                    }
+                    Ok(VoidConcrete::Rife(Concrete::List(Rc::new(concretes))))
+                }
+                CompoundLiteral::Map(expressions) => {
+                    let mut map_concretes = Vec::new();
+                    for (expression_key, expression_value) in expressions {
+                        let key = match self.execute_expression(expression_key)? {
+                            VoidConcrete::Rife(Concrete::String(s)) => s,
+                            VoidConcrete::Rife(_) => {
+                                return Err(ExecutorError::Generic {
+                                    message: String::from("expected string from expression"),
+                                });
+                            }
+                            VoidConcrete::Void => {
+                                return Err(ExecutorError::Generic {
+                                    message: String::from("expected value from expression"),
+                                });
+                            }
+                        };
+                        let value = match self.execute_expression(expression_value)? {
+                            VoidConcrete::Rife(c) => c,
+                            VoidConcrete::Void => {
+                                return Err(ExecutorError::Generic {
+                                    message: String::from("expected value from expression"),
+                                });
+                            }
+                        };
+                        map_concretes.push((key, value));
+                    }
+                    Ok(VoidConcrete::Rife(Concrete::Map(Rc::new(
+                        HashMap::from_iter(
+                            map_concretes
+                                .into_iter()
+                                .map(|(k, v)| (String::from(&*k), v)),
+                        ),
+                    ))))
+                }
+            },
             Expression::Identifier(identifier) => match self.environment.get(&identifier.0) {
                 Err(err) => Err(ExecutorError::Environment(err)),
                 Ok(variable) => match variable.concrete() {
@@ -139,6 +185,28 @@ impl Executor {
                     Err(err) => Err(ExecutorError::Environment(err)),
                     Ok(_) => Ok(VoidConcrete::Void),
                 },
+                Operation::Index { lhs, rhs } => {
+                    let lhs = self.execute_expression(lhs)?;
+                    let rhs = self.execute_expression(rhs)?;
+                    match (lhs, rhs) {
+                        (
+                            VoidConcrete::Rife(Concrete::List(list)),
+                            VoidConcrete::Rife(Concrete::Integer(i)),
+                        ) => Ok(VoidConcrete::Rife(list.get(i as usize).unwrap().clone())),
+
+                        (
+                            VoidConcrete::Rife(Concrete::Map(map)),
+                            VoidConcrete::Rife(Concrete::String(s)),
+                        ) => Ok(VoidConcrete::Rife(map.get(&*s).unwrap().clone())),
+                        (lhs, rhs) => Err(ExecutorError::Generic {
+                            message: format!(
+                                "invalid + operands {:?} and {:?}",
+                                lhs.kind(),
+                                rhs.kind()
+                            ),
+                        }),
+                    }
+                }
                 Operation::AddConcat { lhs, rhs } => {
                     let lhs = self.execute_expression(lhs)?;
                     let rhs = self.execute_expression(rhs)?;
@@ -187,6 +255,17 @@ impl Executor {
                         }),
                     }
                 }
+                Operation::Negate(expression) => match self.execute_expression(expression)? {
+                    VoidConcrete::Rife(Concrete::Integer(i)) => {
+                        Ok(VoidConcrete::Rife(Concrete::Integer(-i)))
+                    }
+                    VoidConcrete::Rife(Concrete::Float(f)) => {
+                        Ok(VoidConcrete::Rife(Concrete::Float(-f)))
+                    }
+                    conc => Err(ExecutorError::Generic {
+                        message: format!("invalid negation operand {:?}", conc.kind()),
+                    }),
+                },
                 Operation::Multiply { lhs, rhs } => {
                     let lhs = self.execute_expression(lhs)?;
                     let rhs = self.execute_expression(rhs)?;
@@ -250,6 +329,24 @@ impl Executor {
                         }),
                     }
                 }
+                Operation::ComparisonEqual { lhs, rhs } => {
+                    let lhs = self.execute_expression(lhs)?;
+                    let rhs = self.execute_expression(rhs)?;
+                    match (lhs, rhs) {
+                        (VoidConcrete::Rife(lhs), VoidConcrete::Rife(rhs))
+                            if lhs.kind() == rhs.kind() && lhs.kind().can_peq() =>
+                        {
+                            Ok(VoidConcrete::Rife(Concrete::Boolean(lhs == rhs)))
+                        }
+                        (lhs, rhs) => Err(ExecutorError::Generic {
+                            message: format!(
+                                "invalid == operands {:?} and {:?}",
+                                lhs.kind(),
+                                rhs.kind()
+                            ),
+                        }),
+                    }
+                }
                 Operation::Exit(expression) => match self.execute_expression(expression)? {
                     VoidConcrete::Rife(Concrete::Integer(st)) => Err(ExecutorError::Exit(st)),
                     conc => Err(ExecutorError::Generic {
@@ -260,11 +357,15 @@ impl Executor {
                     match self.execute_expression(expression)? {
                         VoidConcrete::Rife(Concrete::String(s)) => match set_current_dir(&*s) {
                             Ok(()) => {
-                                let previous_working_directory = Rc::clone(&self.working_directory);
-                                self.working_directory = Rc::clone(&s);
-                                Ok(VoidConcrete::Rife(Concrete::String(
-                                    previous_working_directory,
-                                )))
+                                let previous_working_directory = std::mem::replace(
+                                    &mut self.working_directory,
+                                    current_dir().unwrap(),
+                                );
+                                Ok(VoidConcrete::Rife(Concrete::String(Rc::from(
+                                    previous_working_directory
+                                        .into_os_string()
+                                        .to_string_lossy(),
+                                ))))
                             }
                             Err(_) => todo!(),
                         },
@@ -294,7 +395,10 @@ impl Executor {
                     // }
                     _ => todo!(),
                 },
-                _ => todo!(),
+                Operation::Command(expression) => todo!(),
+                Operation::Pipe { lhs, rhs } => todo!(),
+                Operation::Echo(expression) => todo!(),
+                Operation::Echon(expression) => todo!(),
             },
         }
     }

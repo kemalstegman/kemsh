@@ -3,11 +3,20 @@ use std::{
     io::{BufRead, BufReader, Write, stdin, stdout},
 };
 
-use kemsh::{
-    ast::Expression,
-    executor::{Executor, ExecutorError},
-    syntax::{lexer::LexerError, parser::ParserError, syntax},
-};
+pub mod syntax;
+use syntax::{lexer::LexerError, parser::ParserError, syntax};
+
+pub mod ast;
+use ast::Expression;
+
+pub mod executor;
+use executor::{Executor, ExecutorError};
+
+use crate::executor::concrete::VoidConcrete;
+
+// lookahead iterator
+// todo: make own crate
+pub mod abstract_lookahead;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::process::exit(repl()? as i32)
@@ -18,7 +27,7 @@ fn repl() -> Result<i64, Box<dyn std::error::Error>> {
     let mut stdin_reader = BufReader::new(stdin().lock());
     let mut s = String::new();
     let mut executor = Executor::new();
-    print!("KEMSH > ");
+    print!("KEMSH {} > ", executor.working_directory().display());
     loop {
         stdout.flush()?;
         stdin_reader.read_line(&mut s)?;
@@ -37,14 +46,15 @@ fn repl() -> Result<i64, Box<dyn std::error::Error>> {
             Err(err) => {
                 println!("syntax error: {err:?}");
                 s.clear();
-                print!("KEMSH > ");
+                print!("KEMSH {} > ", executor.working_directory().display());
                 continue;
             }
             Ok(expressions) => expressions,
         };
         for expression in expressions {
-            match executor.execute_top_level_expression(expression) {
-                Ok(()) => (),
+            match executor.execute_expression(expression) {
+                Ok(VoidConcrete::Void) => (),
+                Ok(VoidConcrete::Rife(c)) => println!("{:?}", c),
                 Err(ExecutorError::Exit(status)) => return Ok(status),
                 Err(err) => {
                     println!("execution error: {err:?}");
@@ -52,7 +62,7 @@ fn repl() -> Result<i64, Box<dyn std::error::Error>> {
                 }
             }
         }
-        print!("KEMSH > ");
+        print!("KEMSH {} > ", executor.working_directory().display());
         // print!("{:?} > ", std::env::current_dir()?);
         s.clear()
     }

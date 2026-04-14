@@ -23,6 +23,22 @@ pub enum Concrete {
     FHandle(()),
 }
 
+impl PartialEq for Concrete {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Integer(s), Self::Integer(o)) => s == o,
+            (Self::Float(s), Self::Float(o)) => s == o,
+            (Self::Boolean(s), Self::Boolean(o)) => s == o,
+            (Self::String(s), Self::String(o)) => s == o,
+            (Self::List(s), Self::List(o)) => s == o,
+            (Self::Map(s), Self::Map(o)) => s == o,
+            (Self::Option(s), Self::Option(o)) => s == o,
+            (Self::Result(s), Self::Result(o)) => s == o,
+            _ => false,
+        }
+    }
+}
+
 impl Concrete {
     pub fn kind(&self) -> ConcreteKind {
         match self {
@@ -61,6 +77,22 @@ pub enum ConcreteKind {
     JHandle,
     JExit,
     FHandle,
+}
+
+impl ConcreteKind {
+    pub fn can_peq(&self) -> bool {
+        match self {
+            Self::Integer
+            | Self::Float
+            | Self::Boolean
+            | Self::String
+            | Self::List
+            | Self::Map
+            | Self::Option
+            | Self::Result => true,
+            Self::Function | Self::JCmd | Self::JHandle | Self::JExit | Self::FHandle => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
