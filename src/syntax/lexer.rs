@@ -1,49 +1,13 @@
-//! todo: hex and binary numbers, escaped strings, source errors
-//!
-//! The following is an incomplete abstraction of my lexer.
-//!
-//! There are a few categories of tokens the lexer will produce: lexemes, reserved and identifiers; symbol
-//! delimeters; strings; and numbers. The lexer will necessitates having states; the most obvious example
-//! would be parsing strings. Every character in between the delimeters of the string needs to be consumed
-//! one-for-one, and the lexer cannot produce a token until the ending delimeter is seen, and thus seeing
-//! the end of the stream of characters before this ending delimeter would cause a lexer error.
-//!
-//! # Behavior: Expecting
-//! Basically there are three states the lexer can be in: (1) not consuming, where encountering the end of
-//! the character stream means no token is produced, (2) consuming not expecting, where encountring the end
-//! of the character stream will not create an error and a token can (and will) be produced, and (3) consuming
-//! and expecting, where encountering the end of the character stream will immediately produce an incompletion
-//! error. One caveat is that "consumption" in this context does not always mean the character is permanently
-//! consumed; it could be only peeked at, and then consumed based on a condition, or not consumed at all.
-//!
-//! # General Lexing Behavior
-//! Before parsing any tokens, *the lexer shall discard any whitespace characters*. This is the only spot
-//! whitespace tokens should be lexed.
-//!
-//! When lexing lexemes, the lexer will always be in a "consuming not expecting" state. Every lexeme can be
-//! abruptly converted into a token, though that doesn't always mean the parser will enjoy a lexeme directly
-//! before the end of the character stream.
-//!
-//! Numbers will be in a "consuming not expecting" state with a couple of exceptions. If the two characters
-//! match a valid prefix (e.g. '0x' and '0b'), the next character will be consumed in a "consuming and expecting"
-//! state. Similarly, when a floating point number consumes a '.', the next character will be consumed in a
-//! "consuming and expecting" state.
-//!
-//! Symbol delimeters will always be in a "consuming not expecting" state.
-//!
-//! Strings will be in a "consuming and expecting" state.
-
 pub mod token;
 
 use std::marker::PhantomData;
 
-use itertools::Itertools;
-
 use crate::{
     abstract_lookahead::ErrorBubbledNLookahead,
-    syntax::lexer::token::{Delimeter, Lexeme, Token},
+    syntax::lexer::token::{Delimiter, Token},
 };
 
+/// todo!(): escaped strings, source errors
 pub struct Lexer<I, E>
 where
     I: ErrorBubbledNLookahead<2, char, LexerError<E>>,
@@ -73,144 +37,198 @@ where
     }
     fn lex_token(&mut self, ch: char) -> Result<Token, LexerError<E>> {
         match ch {
-            '"' | '#' => Ok(Token::LiteralString(self.lex_literal_string(ch)?)),
-            '0'..='9' => match self.lex_number(ch)? {
-                (bytes, false) => Ok(Token::Integer(i64::from_ne_bytes(bytes))),
-                (bytes, true) => Ok(Token::Float(f64::from_ne_bytes(bytes))),
-            },
-            'a'..='z' | 'A'..='Z' | '_' => Ok(Token::from_lexeme(self.lex_lexeme(ch)?)),
-            '*' => Ok(Token::Delimeter(Delimeter::Asterisk)),
-            '-' => Ok(Token::Delimeter(Delimeter::Minus)),
-            '+' => Ok(Token::Delimeter(Delimeter::Plus)),
-            '=' => Ok(Token::Delimeter(
+            '*' => Ok(Token::Delimiter(Delimiter::Asterisk)),
+            '-' => Ok(Token::Delimiter(Delimiter::Minus)),
+            '+' => Ok(Token::Delimiter(Delimiter::Plus)),
+            '=' => {
                 if self.iter.bubble_next_if(|ch| *ch == '=')?.is_some() {
-                    Delimeter::EqualEqual
+                    Ok(Token::Delimiter(Delimiter::DoubleEqual))
                 } else {
-                    Delimeter::Equal
-                },
+                    Ok(Token::Delimiter(Delimiter::Equal))
+                }
+            }
+            '|' => {
+                if self.iter.bubble_next_if(|ch| *ch == '|')?.is_some() {
+                    Ok(Token::Delimiter(Delimiter::DoublePipe))
+                } else {
+                    Ok(Token::Delimiter(Delimiter::Pipe))
+                }
+            }
+            ';' => Ok(Token::Delimiter(Delimiter::Semicolon)),
+            ':' => Ok(Token::Delimiter(Delimiter::Colon)),
+            '<' => Ok(Token::Delimiter(Delimiter::OpenAngleBracket)),
+            '>' => {
+                if self.iter.bubble_next_if(|ch| *ch == '>')?.is_some() {
+                    Ok(Token::Delimiter(Delimiter::DoubleCloseAngleBracket))
+                } else {
+                    Ok(Token::Delimiter(Delimiter::CloseAngleBracket))
+                }
+            }
+            ',' => Ok(Token::Delimiter(Delimiter::Comma)),
+            '.' => Ok(Token::Delimiter(Delimiter::Period)),
+            '[' => Ok(Token::Delimiter(Delimiter::OpenBracket)),
+            ']' => Ok(Token::Delimiter(Delimiter::CloseBracket)),
+            '{' => Ok(Token::Delimiter(Delimiter::OpenBrace)),
+            '}' => {
+                if self.iter.bubble_next_if(|ch| *ch == '#')?.is_some() {
+                    Ok(Token::Delimiter(Delimiter::CloseBraceHashtag))
+                } else {
+                    Ok(Token::Delimiter(Delimiter::CloseBrace))
+                }
+            }
+            '!' => Ok(Token::Delimiter(Delimiter::ExclamationMark)),
+            '&' => {
+                if self.iter.bubble_next_if(|ch| *ch == '&')?.is_some() {
+                    Ok(Token::Delimiter(Delimiter::DoubleAmpersand))
+                } else {
+                    Ok(Token::Delimiter(Delimiter::Ampersand))
+                }
+            }
+            '%' => Ok(Token::Delimiter(Delimiter::Percent)),
+            '(' => Ok(Token::Delimiter(Delimiter::OpenParenthesis)),
+            ')' => Ok(Token::Delimiter(Delimiter::CloseParenthesis)),
+            '/' => Ok(Token::Delimiter(Delimiter::ForwardSlash)),
+            '"' => Ok(Token::RawString(
+                RawStringLexer::new(&mut self.iter, 0)
+                    .collect::<Result<String, LexerError<E>>>()?,
             )),
-            '|' => Ok(Token::Delimeter(Delimeter::Pipe)),
-            ';' => Ok(Token::Delimeter(Delimeter::Semicolon)),
-            ':' => Ok(Token::Delimeter(Delimeter::Colon)),
-            '<' => Ok(Token::Delimeter(Delimeter::OpenAngleBracket)),
-            '>' => Ok(Token::Delimeter(Delimeter::CloseAngleBracket)),
-            ',' => Ok(Token::Delimeter(Delimeter::Comma)),
-            '.' => Ok(Token::Delimeter(Delimeter::Period)),
-            '[' => Ok(Token::Delimeter(Delimeter::OpenBracket)),
-            ']' => Ok(Token::Delimeter(Delimeter::CloseBracket)),
-            '{' => Ok(Token::Delimeter(Delimeter::OpenBrace)),
-            '}' => Ok(Token::Delimeter(Delimeter::CloseBrace)),
-            '!' => Ok(Token::Delimeter(Delimeter::ExclamationMark)),
-            '^' => Ok(Token::Delimeter(Delimeter::Carret)),
-            '&' => Ok(Token::Delimeter(Delimeter::Ampersand)),
-            '%' => Ok(Token::Delimeter(Delimeter::Percent)),
-            '(' => Ok(Token::Delimeter(Delimeter::OpenParenthesis)),
-            ')' => Ok(Token::Delimeter(Delimeter::CloseParenthesis)),
-            '/' => Ok(Token::Delimeter(Delimeter::ForwardSlash)),
+            '#' => {
+                if self.iter.bubble_next_if(|ch| *ch == '{')?.is_some() {
+                    Ok(Token::Delimiter(Delimiter::HashtagOpenBrace))
+                } else {
+                    let mut prefix_hashtags = 1;
+                    loop {
+                        match self.iter.next().ok_or(LexerError::Incomplete).flatten()? {
+                            '"' => break,
+                            '#' => prefix_hashtags += 1,
+                            ch => {
+                                return Err(LexerError::Generic {
+                                    message: format!("Expected '\"' or '#' got {ch:?}"),
+                                });
+                            }
+                        }
+                    }
+                    Ok(Token::RawString(
+                        RawStringLexer::new(&mut self.iter, prefix_hashtags).collect::<Result<
+                            String,
+                            LexerError<E>,
+                        >>(
+                        )?,
+                    ))
+                }
+            }
+            '0' if self.iter.bubble_next_if(|ch| *ch == 'x')?.is_some() => {
+                let mut string = String::new();
+                while let Some(ch) = self
+                    .iter
+                    .bubble_next_if(|ch| ch.is_ascii_hexdigit() || *ch == '_')?
+                {
+                    if ch == '_' {
+                        continue;
+                    }
+                    string.push(ch);
+                }
+                if string.is_empty() {
+                    return Err(LexerError::Generic {
+                        message: format!("invalid integer: 0x prefix had no hexdigits following"),
+                    });
+                }
+                // todo!() update this guard
+                if self.iter.bubble_next_if(|ch| *ch == '.')?.is_some() {
+                    return Err(LexerError::Generic {
+                        message: format!("invalid float: floats must be base 10"),
+                    });
+                }
+                match i64::from_str_radix(&string, 16) {
+                    Ok(n) => Ok(Token::Integer(n)),
+                    Err(_) => Err(LexerError::Generic {
+                        message: format!("invalid integer: \"0x{string}\""),
+                    }),
+                }
+            }
+            '0' if self.iter.bubble_next_if(|ch| *ch == 'b')?.is_some() => {
+                let mut string = String::new();
+                while let Some(ch) = self
+                    .iter
+                    .bubble_next_if(|ch| *ch == '0' || *ch == '1' || *ch == '_')?
+                {
+                    if ch == '_' {
+                        continue;
+                    }
+                    string.push(ch);
+                }
+                if string.is_empty() {
+                    return Err(LexerError::Generic {
+                        message: format!("invalid integer: 0b prefix had no binary following"),
+                    });
+                }
+                // todo!() update this guard
+                if self.iter.bubble_next_if(|ch| *ch == '.')?.is_some() {
+                    return Err(LexerError::Generic {
+                        message: format!("invalid float: floats must be base 10"),
+                    });
+                }
+                match i64::from_str_radix(&string, 2) {
+                    Ok(n) => Ok(Token::Integer(n)),
+                    Err(_) => Err(LexerError::Generic {
+                        message: format!("invalid integer: \"0b{string}\""),
+                    }),
+                }
+            }
+            ch if ch.is_ascii_digit() => {
+                let mut string = String::from(ch);
+                while let Some(ch) = self
+                    .iter
+                    .bubble_next_if(|ch| ch.is_ascii_digit() || *ch == '_')?
+                {
+                    if ch == '_' {
+                        continue;
+                    }
+                    string.push(ch);
+                }
+                if self.iter.bubble_next_if(|ch| *ch == '.')?.is_some() {
+                    string.push('.');
+                    while let Some(ch) = self
+                        .iter
+                        .bubble_next_if(|ch| ch.is_ascii_digit() || *ch == '_')?
+                    {
+                        if ch == '_' {
+                            continue;
+                        }
+                        string.push(ch);
+                    }
+                    if string.ends_with('.') {
+                        return Err(LexerError::Generic {
+                            message: format!("invalid float: period had no digits following"),
+                        });
+                    }
+                    match string.parse::<f64>() {
+                        Ok(n) => Ok(Token::Float(n)),
+                        Err(_) => Err(LexerError::Generic {
+                            message: format!("invalid float: \"{string}\""),
+                        }),
+                    }
+                } else {
+                    match i64::from_str_radix(&string, 10) {
+                        Ok(n) => Ok(Token::Integer(n)),
+                        Err(_) => Err(LexerError::Generic {
+                            message: format!("invalid integer: \"{string}\""),
+                        }),
+                    }
+                }
+            }
+            ch if ch.is_ascii_alphanumeric() || ch == '_' => {
+                let mut string = String::from(ch);
+                while let Some(ch) = self
+                    .iter
+                    .bubble_next_if(|ch| ch.is_ascii_alphanumeric() || *ch == '_')?
+                {
+                    string.push(ch);
+                }
+                Ok(Token::from_lexeme(string))
+            }
             ch if ch.is_ascii_whitespace() => unreachable!(),
             _ => unimplemented!(),
-        }
-    }
-    fn lex_number(&mut self, ch: char) -> Result<([u8; 8], bool), LexerError<E>> {
-        let mut string = String::new();
-        let mut radix = 10;
-        match ch {
-            '0' => match self.iter.bubble_next_if(|ch| matches!(ch, 'x' | 'b'))? {
-                Some('x') => radix = 16,
-                Some('b') => radix = 2,
-                None => string.push('0'),
-                Some(_) => unreachable!(),
-            },
-            _ => string.push(ch),
-        }
-        match radix {
-            16 => {
-                while let Some(ch) = self.iter.bubble_next_if(|ch| ch.is_ascii_hexdigit())? {
-                    string.push(ch);
-                }
-            }
-            _ => {
-                while let Some(ch) = self.iter.bubble_next_if(|ch| ch.is_ascii_digit())? {
-                    string.push(ch);
-                }
-            }
-        }
-        if string.is_empty() {
-            return Err(LexerError::Generic {
-                message: format!("invalid num: base prefixes must be followed by a number"),
-            });
-        }
-        if self.iter.bubble_next_if(|ch| *ch == '.')?.is_some() {
-            if radix != 10 {
-                return Err(LexerError::Generic {
-                    message: format!("invalid f64: floats must be base 10"),
-                });
-            }
-            string.push('.');
-            while let Some(ch) = self.iter.bubble_next_if(|ch| ch.is_ascii_digit())? {
-                string.push(ch);
-            }
-            if string.ends_with('.') {
-                return Err(LexerError::Generic {
-                    message: format!("invalid f64: floats must have a number following the period"),
-                });
-            }
-            return match string.parse::<f64>() {
-                Ok(n) => Ok((n.to_ne_bytes(), true)),
-                Err(_) => Err(LexerError::Generic {
-                    message: format!("invalid f64: \"{string}\""),
-                }),
-            };
-        } else {
-            return match string.parse::<i64>() {
-                Ok(n) => Ok((n.to_ne_bytes(), false)),
-                Err(_) => Err(LexerError::Generic {
-                    message: format!("invalid i64: \"{string}\""),
-                }),
-            };
-        }
-    }
-    fn lex_lexeme(&mut self, ch: char) -> Result<Lexeme, LexerError<E>> {
-        let mut string = String::from(ch);
-        while let Some(ch) = self
-            .iter
-            .bubble_next_if(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'))?
-        {
-            string.push(ch);
-        }
-        Ok(string)
-    }
-    fn lex_literal_string(&mut self, mut ch: char) -> Result<String, LexerError<E>> {
-        let mut delimeter_hashtags = 0;
-        while ch == '#' {
-            delimeter_hashtags += 1;
-            ch = self.iter.next().ok_or(LexerError::Incomplete).flatten()?;
-        }
-        if ch != '"' {
-            return Err(LexerError::Generic {
-                message: format!("Expected '\"' got {ch:?}"),
-            });
-        }
-        let mut string = String::new();
-        loop {
-            match self.iter.next().ok_or(LexerError::Incomplete).flatten()? {
-                '"' => {
-                    let mut count = 0;
-                    while delimeter_hashtags > count
-                        && self.iter.bubble_next_if(|ch| *ch == '#')?.is_some()
-                    {
-                        count += 1;
-                    }
-                    if count == delimeter_hashtags {
-                        return Ok(string);
-                    }
-                    string.push('"');
-                    for _ in 0..count {
-                        string.push('#');
-                    }
-                }
-                ch => string.push(ch),
-            }
         }
     }
 }
@@ -229,5 +247,63 @@ where
     type Item = Result<Token, LexerError<E>>;
     fn next(&mut self) -> Option<Self::Item> {
         self.lex()
+    }
+}
+
+/// LOOKAHEAD must be 1 or more
+struct RawStringLexer<const LOOKAHEAD: usize, I, E>
+where
+    I: ErrorBubbledNLookahead<LOOKAHEAD, char, LexerError<E>>,
+{
+    prefix_hashtags: usize,
+    suffix_hashtags: usize,
+    iter: I,
+    _marker: PhantomData<E>,
+}
+
+impl<const LOOKAHEAD: usize, I, E> RawStringLexer<LOOKAHEAD, I, E>
+where
+    I: ErrorBubbledNLookahead<LOOKAHEAD, char, LexerError<E>>,
+{
+    fn new(iter: I, prefix_hashtags: usize) -> Self {
+        Self {
+            prefix_hashtags,
+            suffix_hashtags: 0,
+            iter,
+            _marker: PhantomData,
+        }
+    }
+    fn next_char(&mut self) -> Result<Option<char>, LexerError<E>> {
+        if self.suffix_hashtags > 0 {
+            self.suffix_hashtags -= 1;
+            return Ok(Some('#'));
+        }
+        match self.iter.next().ok_or(LexerError::Incomplete).flatten()? {
+            '"' => {
+                while self.prefix_hashtags > self.suffix_hashtags
+                    && self.iter.bubble_next_if(|ch| *ch == '#')?.is_some()
+                {
+                    self.suffix_hashtags += 1;
+                }
+                if self.prefix_hashtags == self.suffix_hashtags {
+                    return Ok(None);
+                }
+                Ok(Some('"'))
+            }
+            '\n' => Err(LexerError::Generic {
+                message: String::from("raw strings cannot span multiple lines"),
+            }),
+            ch => Ok(Some(ch)),
+        }
+    }
+}
+
+impl<const LOOKAHEAD: usize, I, E> Iterator for RawStringLexer<LOOKAHEAD, I, E>
+where
+    I: ErrorBubbledNLookahead<LOOKAHEAD, char, LexerError<E>>,
+{
+    type Item = Result<char, LexerError<E>>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_char().transpose()
     }
 }

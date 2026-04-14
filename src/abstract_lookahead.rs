@@ -11,6 +11,12 @@ pub trait NLookahead<const LOOKAHEAD: usize>: Iterator {
     }
 }
 
+impl<const LOOKAHEAD: usize, I: NLookahead<LOOKAHEAD>> NLookahead<LOOKAHEAD> for &mut I {
+    fn peek_nth(&mut self, n: usize) -> Option<&Self::Item> {
+        (**self).peek_nth(n)
+    }
+}
+
 // You may ask, "why not just use PeekNth?". It is a heap allocated
 // vector, but there are times where you know the maximum amount
 // of lookahead you need, and thus can be stack allocated. I have
