@@ -5,9 +5,10 @@ use std::marker::PhantomData;
 use crate::{
     abstract_lookahead::ErrorBubbledNLookahead,
     ast::{
-        Concrete, ConcreteKind, DeclareLValue, Expression, Identifier, MutableLValue, Operation,
+        CompoundLiteral, DeclareLValue, Expression, Identifier, Literal, MutableLValue, Operation,
     },
-    syntax::lexer::token::{Delimeter, ReservedLexeme, Token},
+    executor::concrete::ConcreteKind,
+    syntax::lexer::token::Token,
 };
 
 pub struct Parser<I, E>
@@ -38,7 +39,7 @@ where
                 };
                 match self.iter.next().ok_or(ParserError::Incomplete).flatten() {
                     Err(err) => Some(Err(err)),
-                    Ok(Token::Delimeter(Delimeter::Semicolon)) => Some(Ok(expression)),
+                    Ok(Token::DELIM_SEMICOLON) => Some(Ok(expression)),
                     Ok(tok) => Some(Err(ParserError::Generic {
                         message: format!("expected ; got: {tok:?}"),
                     })),
@@ -72,18 +73,65 @@ where
     }
     pub fn parse_nud(&mut self, tok: Token) -> Result<Expression, ParserError<E>> {
         match tok {
-            Token::Float(n) => Ok(Expression::Concrete(Concrete::Float(n))),
-            Token::Integer(n) => Ok(Expression::Concrete(Concrete::Integer(n))),
-            Token::LiteralString(s) => Ok(Expression::Concrete(Concrete::String(s))),
-            Token::Reserved(ReservedLexeme::True) => {
-                Ok(Expression::Concrete(Concrete::Boolean(true)))
+            Token::Float(n) => Ok(Expression::Literal(Literal::Float(n))),
+            Token::Integer(n) => Ok(Expression::Literal(Literal::Integer(n))),
+            Token::RawString(s) => Ok(Expression::Literal(Literal::RawString(s))),
+            Token::LEX_TRUE => Ok(Expression::Literal(Literal::Boolean(true))),
+            Token::LEX_FALSE => Ok(Expression::Literal(Literal::Boolean(false))),
+            Token::UnreservedLexeme(i) => Ok(Expression::Identifier(Identifier(i))),
+            Token::LEX_LET => Ok(self.parse_nud_let()?),
+            Token::LEX_EXIT => Ok(self.parse_nud_exit()?),
+            Token::LEX_CD => {
+                let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                Ok(Expression::Operation(Box::new(Operation::ChangeDirectory(
+                    self.parse_expression(tok, Precedence::Prefix)?,
+                ))))
             }
-            Token::Reserved(ReservedLexeme::False) => {
-                Ok(Expression::Concrete(Concrete::Boolean(false)))
+            Token::LEX_RUN => {
+                let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                Ok(Expression::Operation(Box::new(Operation::Run(
+                    self.parse_expression(tok, Precedence::Prefix)?,
+                ))))
             }
-            Token::Unreserved(i) => Ok(Expression::Identifier(Identifier(i))),
-            Token::Reserved(ReservedLexeme::Let) => Ok(self.parse_nud_let()?),
-            Token::Reserved(ReservedLexeme::Exit) => Ok(self.parse_nud_exit()?),
+            Token::LEX_SPAWN => {
+                let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                Ok(Expression::Operation(Box::new(Operation::Spawn(
+                    self.parse_expression(tok, Precedence::Prefix)?,
+                ))))
+            }
+            Token::LEX_ECHO => todo!(),
+            Token::LEX_ECHON => todo!(),
+            Token::DELIM_OPENBRACKET => {
+                let mut expressions = Vec::new();
+                loop {
+                    let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                    expressions.push(self.parse_expression(tok, Precedence::None)?);
+                    if self
+                        .iter
+                        .bubble_next_if(|tok| matches!(tok, Token::DELIM_COMMA))?
+                        .is_some()
+                    {
+                        break;
+                    }
+                }
+                match self.iter.next().ok_or(ParserError::Incomplete).flatten()? {
+                    Token::DELIM_CLOSEBRACKET => (),
+                    tok => {
+                        return Err(ParserError::Generic {
+                            message: format!("expected ] got {tok:?}"),
+                        });
+                    }
+                }
+                Ok(Expression::CompoundLiteral(CompoundLiteral::List(
+                    expressions,
+                )))
+            }
+            // list
+            // map
+            // option
+            // result
+            // control flow
+            // function
             _ => Err(ParserError::Generic {
                 message: format!("unexpected token: {tok:?}"),
             }),
@@ -92,7 +140,7 @@ where
     pub fn parse_nud_let(&mut self) -> Result<Expression, ParserError<E>> {
         let mut tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
         let identifier = match tok {
-            Token::Unreserved(identifier) => Identifier(identifier),
+            Token::UnreservedLexeme(identifier) => Identifier(identifier),
             _ => {
                 return Err(ParserError::Generic {
                     message: format!("expected identifier token got: {tok:?}"),
@@ -101,7 +149,7 @@ where
         };
         let type_annotation = if self
             .iter
-            .bubble_next_if(|tok| matches!(tok, Token::Delimeter(Delimeter::Colon)))?
+            .bubble_next_if(|tok| matches!(tok, Token::DELIM_COLON))?
             .is_some()
         {
             tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
@@ -114,8 +162,8 @@ where
             type_annotation,
         };
         let ptok = self.iter.bubble_peek()?.ok_or(ParserError::Incomplete)?;
-        if let Token::Delimeter(Delimeter::Equal) = ptok {
-            let Some(Ok(Token::Delimeter(Delimeter::Equal))) = self.iter.next() else {
+        if let Token::DELIM_EQUAL = ptok {
+            let Some(Ok(Token::DELIM_EQUAL)) = self.iter.next() else {
                 unreachable!("validated by peek")
             };
             tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
@@ -130,9 +178,9 @@ where
     }
     fn parse_nud_exit(&mut self) -> Result<Expression, ParserError<E>> {
         let ptok = self.iter.bubble_peek()?.ok_or(ParserError::Incomplete)?;
-        if let Token::Delimeter(Delimeter::Semicolon) = ptok {
+        if let Token::DELIM_SEMICOLON = ptok {
             Ok(Expression::Operation(Box::new(Operation::Exit(
-                Expression::Concrete(Concrete::Integer(0)),
+                Expression::Literal(Literal::Integer(0)),
             ))))
         } else {
             let Some(Ok(tok)) = self.iter.next() else {
@@ -145,7 +193,7 @@ where
     }
     pub fn parse_led(&mut self, lhs: Expression, tok: Token) -> Result<Expression, ParserError<E>> {
         match tok {
-            Token::Delimeter(Delimeter::Plus) => {
+            Token::DELIM_PLUS => {
                 let next_tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
                 let rhs = self.parse_expression(next_tok, Precedence::Term)?;
                 Ok(Expression::Operation(Box::new(Operation::AddConcat {
@@ -153,7 +201,7 @@ where
                     rhs,
                 })))
             }
-            Token::Delimeter(Delimeter::Minus) => {
+            Token::DELIM_MINUS => {
                 let next_tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
                 let rhs = self.parse_expression(next_tok, Precedence::Term)?;
                 Ok(Expression::Operation(Box::new(Operation::Subtract {
@@ -161,7 +209,7 @@ where
                     rhs,
                 })))
             }
-            Token::Delimeter(Delimeter::Asterisk) => {
+            Token::DELIM_ASTERISK => {
                 let next_tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
                 let rhs = self.parse_expression(next_tok, Precedence::Factor)?;
                 Ok(Expression::Operation(Box::new(Operation::Multiply {
@@ -169,7 +217,7 @@ where
                     rhs,
                 })))
             }
-            Token::Delimeter(Delimeter::ForwardSlash) => {
+            Token::DELIM_FORWARDSLASH => {
                 let next_tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
                 let rhs = self.parse_expression(next_tok, Precedence::Factor)?;
                 Ok(Expression::Operation(Box::new(Operation::Divide {
@@ -177,7 +225,7 @@ where
                     rhs,
                 })))
             }
-            Token::Delimeter(Delimeter::Percent) => {
+            Token::DELIM_PERCENT => {
                 let next_tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
                 let rhs = self.parse_expression(next_tok, Precedence::Factor)?;
                 Ok(Expression::Operation(Box::new(Operation::Modulo {
@@ -185,8 +233,8 @@ where
                     rhs,
                 })))
             }
-            Token::Delimeter(Delimeter::Colon) => self.parse_led_type(lhs),
-            Token::Delimeter(Delimeter::Equal) => self.parse_led_assign(lhs),
+            Token::DELIM_COLON => self.parse_led_type(lhs),
+            Token::DELIM_EQUAL => self.parse_led_assign(lhs),
             _ => Err(ParserError::Generic {
                 message: format!("unexpected token: {tok:?}"),
             }),
@@ -221,14 +269,14 @@ where
     }
     pub fn parse_concrete_kind(&mut self, tok: Token) -> Result<ConcreteKind, ParserError<E>> {
         match tok {
-            Token::Reserved(ReservedLexeme::Boolean) => Ok(ConcreteKind::Boolean),
-            Token::Reserved(ReservedLexeme::Integer) => Ok(ConcreteKind::Integer),
-            Token::Reserved(ReservedLexeme::Float) => Ok(ConcreteKind::Float),
-            Token::Reserved(ReservedLexeme::String) => Ok(ConcreteKind::String),
-            Token::Reserved(ReservedLexeme::List) => Ok(ConcreteKind::List),
-            Token::Reserved(ReservedLexeme::Map) => Ok(ConcreteKind::Map),
-            Token::Reserved(ReservedLexeme::Option) => Ok(ConcreteKind::Option),
-            Token::Reserved(ReservedLexeme::Result) => Ok(ConcreteKind::Result),
+            Token::LEX_BOOLEAN => Ok(ConcreteKind::Boolean),
+            Token::LEX_INTEGER => Ok(ConcreteKind::Integer),
+            Token::LEX_FLOAT => Ok(ConcreteKind::Float),
+            Token::LEX_STRING => Ok(ConcreteKind::String),
+            Token::LEX_LIST => Ok(ConcreteKind::List),
+            Token::LEX_MAP => Ok(ConcreteKind::Map),
+            Token::LEX_OPTION => Ok(ConcreteKind::Option),
+            Token::LEX_RESULT => Ok(ConcreteKind::Result),
             _ => Err(ParserError::Generic {
                 message: format!("unexpected token: {tok:?}"),
             }),
@@ -241,7 +289,7 @@ where
         lhs.type_annotation = Some(self.parse_concrete_kind(tok)?);
 
         tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
-        let Token::Delimeter(Delimeter::Equal) = tok else {
+        let Token::DELIM_EQUAL = tok else {
             return Err(ParserError::Generic {
                 message: format!("expected = got {tok:?}"),
             });
@@ -257,7 +305,7 @@ where
     pub fn parse_led_assign(&mut self, left: Expression) -> Result<Expression, ParserError<E>> {
         let lhs = self.parse_mutable_lvalue(left)?;
         let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
-        if let Token::Reserved(ReservedLexeme::Void) = tok {
+        if let Token::LEX_VOID = tok {
             if !lhs.indices.is_empty() || lhs.type_annotation.is_some() {
                 return Err(ParserError::Generic {
                     message: String::from("invalid lvalue for void assignment"),
@@ -278,19 +326,12 @@ where
 impl From<&Token> for Precedence {
     fn from(token: &Token) -> Self {
         match token {
-            Token::Delimeter(delimeter) => match delimeter {
-                Delimeter::Plus | Delimeter::Minus => Precedence::Term,
-                Delimeter::Asterisk | Delimeter::ForwardSlash | Delimeter::Percent => {
-                    Precedence::Factor
-                }
-                Delimeter::Equal | Delimeter::Colon => Precedence::Assign,
-                _ => Precedence::None,
-            },
-            Token::Reserved(_)
-            | Token::Float(_)
-            | Token::Integer(_)
-            | Token::LiteralString(_)
-            | Token::Unreserved(_) => Precedence::None,
+            Token::DELIM_PLUS | Token::DELIM_MINUS => Precedence::Term,
+            Token::DELIM_ASTERISK | Token::DELIM_FORWARDSLASH | Token::DELIM_PERCENT => {
+                Precedence::Factor
+            }
+            Token::DELIM_EQUAL | Token::DELIM_COLON => Precedence::Assign,
+            _ => Precedence::None,
         }
     }
 }

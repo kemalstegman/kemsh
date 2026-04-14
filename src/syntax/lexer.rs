@@ -2,10 +2,7 @@ pub mod token;
 
 use std::marker::PhantomData;
 
-use crate::{
-    abstract_lookahead::ErrorBubbledNLookahead,
-    syntax::lexer::token::{Delimiter, Token},
-};
+use crate::{abstract_lookahead::ErrorBubbledNLookahead, syntax::lexer::token::Token};
 
 /// todo!(): escaped strings, source errors
 pub struct Lexer<I, E>
@@ -37,64 +34,64 @@ where
     }
     fn lex_token(&mut self, ch: char) -> Result<Token, LexerError<E>> {
         match ch {
-            '*' => Ok(Token::Delimiter(Delimiter::Asterisk)),
-            '-' => Ok(Token::Delimiter(Delimiter::Minus)),
-            '+' => Ok(Token::Delimiter(Delimiter::Plus)),
+            '*' => Ok(Token::DELIM_ASTERISK),
+            '-' => Ok(Token::DELIM_MINUS),
+            '+' => Ok(Token::DELIM_PLUS),
             '=' => {
                 if self.iter.bubble_next_if(|ch| *ch == '=')?.is_some() {
-                    Ok(Token::Delimiter(Delimiter::DoubleEqual))
+                    Ok(Token::DELIM_DOUBLEEQUAL)
                 } else {
-                    Ok(Token::Delimiter(Delimiter::Equal))
+                    Ok(Token::DELIM_EQUAL)
                 }
             }
             '|' => {
                 if self.iter.bubble_next_if(|ch| *ch == '|')?.is_some() {
-                    Ok(Token::Delimiter(Delimiter::DoublePipe))
+                    Ok(Token::DELIM_DOUBLEPIPE)
                 } else {
-                    Ok(Token::Delimiter(Delimiter::Pipe))
+                    Ok(Token::DELIM_PIPE)
                 }
             }
-            ';' => Ok(Token::Delimiter(Delimiter::Semicolon)),
-            ':' => Ok(Token::Delimiter(Delimiter::Colon)),
-            '<' => Ok(Token::Delimiter(Delimiter::OpenAngleBracket)),
+            ';' => Ok(Token::DELIM_SEMICOLON),
+            ':' => Ok(Token::DELIM_COLON),
+            '<' => Ok(Token::DELIM_OPENANGLEBRACKET),
             '>' => {
                 if self.iter.bubble_next_if(|ch| *ch == '>')?.is_some() {
-                    Ok(Token::Delimiter(Delimiter::DoubleCloseAngleBracket))
+                    Ok(Token::DELIM_DOUBLECLOSEANGLEBRACKET)
                 } else {
-                    Ok(Token::Delimiter(Delimiter::CloseAngleBracket))
+                    Ok(Token::DELIM_CLOSEANGLEBRACKET)
                 }
             }
-            ',' => Ok(Token::Delimiter(Delimiter::Comma)),
-            '.' => Ok(Token::Delimiter(Delimiter::Period)),
-            '[' => Ok(Token::Delimiter(Delimiter::OpenBracket)),
-            ']' => Ok(Token::Delimiter(Delimiter::CloseBracket)),
-            '{' => Ok(Token::Delimiter(Delimiter::OpenBrace)),
+            ',' => Ok(Token::DELIM_COMMA),
+            '.' => Ok(Token::DELIM_PERIOD),
+            '[' => Ok(Token::DELIM_OPENBRACKET),
+            ']' => Ok(Token::DELIM_CLOSEBRACKET),
+            '{' => Ok(Token::DELIM_OPENBRACE),
             '}' => {
                 if self.iter.bubble_next_if(|ch| *ch == '#')?.is_some() {
-                    Ok(Token::Delimiter(Delimiter::CloseBraceHashtag))
+                    Ok(Token::DELIM_CLOSEBRACEHASHTAG)
                 } else {
-                    Ok(Token::Delimiter(Delimiter::CloseBrace))
+                    Ok(Token::DELIM_CLOSEBRACE)
                 }
             }
-            '!' => Ok(Token::Delimiter(Delimiter::ExclamationMark)),
+            '!' => Ok(Token::DELIM_EXCLAMATIONMARK),
             '&' => {
                 if self.iter.bubble_next_if(|ch| *ch == '&')?.is_some() {
-                    Ok(Token::Delimiter(Delimiter::DoubleAmpersand))
+                    Ok(Token::DELIM_DOUBLEAMPERSAND)
                 } else {
-                    Ok(Token::Delimiter(Delimiter::Ampersand))
+                    Ok(Token::DELIM_AMPERSAND)
                 }
             }
-            '%' => Ok(Token::Delimiter(Delimiter::Percent)),
-            '(' => Ok(Token::Delimiter(Delimiter::OpenParenthesis)),
-            ')' => Ok(Token::Delimiter(Delimiter::CloseParenthesis)),
-            '/' => Ok(Token::Delimiter(Delimiter::ForwardSlash)),
+            '%' => Ok(Token::DELIM_PERCENT),
+            '(' => Ok(Token::DELIM_OPENPARENTHESIS),
+            ')' => Ok(Token::DELIM_CLOSEPARENTHESIS),
+            '/' => Ok(Token::DELIM_FORWARDSLASH),
             '"' => Ok(Token::RawString(
                 RawStringLexer::new(&mut self.iter, 0)
                     .collect::<Result<String, LexerError<E>>>()?,
             )),
             '#' => {
                 if self.iter.bubble_next_if(|ch| *ch == '{')?.is_some() {
-                    Ok(Token::Delimiter(Delimiter::HashtagOpenBrace))
+                    Ok(Token::DELIM_HASHTAGOPENBRACE)
                 } else {
                     let mut prefix_hashtags = 1;
                     loop {
@@ -225,7 +222,7 @@ where
                 {
                     string.push(ch);
                 }
-                Ok(Token::from_lexeme(string))
+                Ok(Token::lexeme_from_string(string))
             }
             ch if ch.is_ascii_whitespace() => unreachable!(),
             _ => unimplemented!(),
