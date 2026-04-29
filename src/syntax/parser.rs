@@ -109,7 +109,7 @@ where
                     if self
                         .iter
                         .bubble_next_if(|tok| matches!(tok, Token::DELIM_COMMA))?
-                        .is_some()
+                        .is_none()
                     {
                         break;
                     }

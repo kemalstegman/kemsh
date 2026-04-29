@@ -16,7 +16,7 @@ impl Environment {
         environment
             .declare(
                 String::from("_KEMSH_VERSION"),
-                Variable::Initialized(Concrete::String(Rc::from("0.3.0"))),
+                Variable::Initialized(Concrete::String(Rc::from("0.3.1"))),
             )
             .unwrap();
         environment
