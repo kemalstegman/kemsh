@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::executor::concrete::ConcreteKind;
 
 #[derive(Debug, Clone)]
@@ -22,6 +24,7 @@ pub enum CompoundLiteral {
     // EscapedString,
     List(Vec<Expression>),
     Map(Vec<(Expression, Expression)>),
+    Function(Rc<[Expression]>, Rc<[(String, Option<ConcreteKind>)]>, bool),
 }
 
 #[derive(Debug, Clone)]
@@ -37,25 +40,54 @@ pub struct BraceBlock {
 pub enum Operation {
     // infix
     /// add two integers or floats, or concatenate two strings
-    AddConcat { lhs: Expression, rhs: Expression },
+    AddConcat {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// subtract two integers or floats
-    Subtract { lhs: Expression, rhs: Expression },
+    Subtract {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// multiply two integers or floats
-    Multiply { lhs: Expression, rhs: Expression },
+    Multiply {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// divide two integers or floats
-    Divide { lhs: Expression, rhs: Expression },
+    Divide {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// modulo two integers or floats
-    Modulo { lhs: Expression, rhs: Expression },
+    Modulo {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// pipe two processes
-    Pipe { lhs: Expression, rhs: Expression },
+    Pipe {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// compare equality
-    ComparisonEqual { lhs: Expression, rhs: Expression },
+    ComparisonEqual {
+        lhs: Expression,
+        rhs: Expression,
+    },
     /// assign an lvalue to an rvalue
-    Assign { lhs: MutableLValue, rhs: Expression },
+    Assign {
+        lhs: MutableLValue,
+        rhs: Expression,
+    },
     /// assign an lvalue to void, deleting it.
-    AssignVoid { lhs: Identifier },
+    AssignVoid {
+        lhs: Identifier,
+    },
     /// index into a list or map
-    Index { lhs: Expression, rhs: Expression },
+    Index {
+        lhs: Expression,
+        rhs: Expression,
+    },
 
     // unary prefix
     /// negate an integer or float
@@ -79,6 +111,9 @@ pub enum Operation {
     Echon(Expression),
     /// exit with a status
     Exit(Expression),
+
+    // unary suffix
+    Call(Expression, Vec<Expression>),
 }
 
 #[derive(Debug, Clone)]

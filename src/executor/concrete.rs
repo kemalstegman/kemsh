@@ -15,6 +15,7 @@ pub enum Concrete {
     Function {
         scopes: WeakEnvironment,
         expressions: Rc<[Expression]>,
+        arguments: Rc<[(String, Option<ConcreteKind>)]>,
         evaluate_to_tail_expression: bool,
     },
     JCmd(()),
@@ -53,6 +54,7 @@ impl Concrete {
             Concrete::Function {
                 scopes: _,
                 expressions: _,
+                arguments: _,
                 evaluate_to_tail_expression: _,
             } => ConcreteKind::Function,
             Concrete::JCmd(_) => ConcreteKind::JCmd,

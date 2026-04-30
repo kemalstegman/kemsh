@@ -34,21 +34,21 @@ impl Executor {
     }
     pub fn execute_top_level_expression(
         &mut self,
-        expression: Expression,
+        expression: &Expression,
     ) -> Result<(), ExecutorError> {
         println!("{:?}", self.execute_expression(expression)?);
         Ok(())
     }
     pub fn execute_expression(
         &mut self,
-        expression: Expression,
+        expression: &Expression,
     ) -> Result<VoidConcrete, ExecutorError> {
         match expression {
             Expression::Literal(literal) => Ok(VoidConcrete::Rife(match literal {
-                Literal::Boolean(b) => Concrete::Boolean(b),
-                Literal::Float(f) => Concrete::Float(f),
-                Literal::Integer(i) => Concrete::Integer(i),
-                Literal::RawString(s) => Concrete::String(Rc::from(s)),
+                Literal::Boolean(b) => Concrete::Boolean(*b),
+                Literal::Float(f) => Concrete::Float(*f),
+                Literal::Integer(i) => Concrete::Integer(*i),
+                Literal::RawString(s) => Concrete::String(Rc::from(s.as_str())),
             })),
             Expression::CompoundLiteral(compound_literal) => match compound_literal {
                 CompoundLiteral::List(expressions) => {
@@ -99,6 +99,15 @@ impl Executor {
                         ),
                     ))))
                 }
+                CompoundLiteral::Function(expressions, arguments, evaluate_to_tail_expression) => {
+                    let scopes = self.environment.weak();
+                    Ok(VoidConcrete::Rife(Concrete::Function {
+                        scopes,
+                        expressions: Rc::clone(&expressions),
+                        arguments: Rc::clone(arguments),
+                        evaluate_to_tail_expression: *evaluate_to_tail_expression,
+                    }))
+                }
             },
             Expression::Identifier(identifier) => match self.environment.get(&identifier.0) {
                 Err(err) => Err(ExecutorError::Environment(err)),
@@ -119,7 +128,7 @@ impl Executor {
                     for expression in expressions {
                         last = self.execute_expression(expression)?;
                     }
-                    if evaluate_to_tail_expression {
+                    if *evaluate_to_tail_expression {
                         Ok(last)
                     } else {
                         Ok(VoidConcrete::Void)
@@ -128,7 +137,7 @@ impl Executor {
                 self.environment.pop_scope();
                 result
             }
-            Expression::Operation(operation) => match *operation {
+            Expression::Operation(operation) => match &**operation {
                 Operation::Let {
                     lhs,
                     rhs: Some(rhs),
@@ -146,7 +155,7 @@ impl Executor {
                         }
                         match self
                             .environment
-                            .declare(lhs.identifier.0, Variable::Initialized(rhs))
+                            .declare(lhs.identifier.0.clone(), Variable::Initialized(rhs))
                         {
                             Ok(()) => Ok(VoidConcrete::Void),
                             Err(err) => Err(ExecutorError::Environment(err)),
@@ -155,7 +164,7 @@ impl Executor {
                 },
                 Operation::Let { lhs, rhs: None } => {
                     match self.environment.declare(
-                        lhs.identifier.0,
+                        lhs.identifier.0.clone(),
                         match lhs.type_annotation {
                             Some(kind) => Variable::Typed(kind),
                             None => Variable::Declared,
@@ -380,6 +389,40 @@ impl Executor {
                         Command::new(&*s).spawn().unwrap().wait().unwrap();
                         Ok(VoidConcrete::Void)
                     }
+                    VoidConcrete::Rife(Concrete::List(l)) => {
+                        match l
+                            .iter()
+                            .map(|c| {
+                                if let Concrete::String(s) = c {
+                                    Some(s)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Option<Vec<_>>>()
+                        {
+                            None => Err(ExecutorError::Generic {
+                                message: format!("invalid run operand; expected a list of strings"),
+                            }),
+                            Some(v) if v.len() == 0 => Err(ExecutorError::Generic {
+                                message: format!(
+                                    "invalid run operand; expected a list with at least one element"
+                                ),
+                            }),
+                            Some(v) if v.len() >= 1 => {
+                                let mut iter = v.into_iter().map(|s| &**s);
+                                let program = iter.next().unwrap();
+                                Command::new(program)
+                                    .args(iter)
+                                    .spawn()
+                                    .unwrap()
+                                    .wait()
+                                    .unwrap();
+                                Ok(VoidConcrete::Void)
+                            }
+                            Some(_) => unreachable!(),
+                        }
+                    }
                     conc => Err(ExecutorError::Generic {
                         message: format!("invalid run operand {:?}", conc.kind()),
                     }),
@@ -395,10 +438,100 @@ impl Executor {
                     // }
                     _ => todo!(),
                 },
-                Operation::Command(expression) => todo!(),
-                Operation::Pipe { lhs, rhs } => todo!(),
-                Operation::Echo(expression) => todo!(),
-                Operation::Echon(expression) => todo!(),
+                Operation::Command(_expression) => todo!(),
+                Operation::Pipe { lhs: _, rhs: _ } => todo!(),
+                Operation::Echo(expression) => match self.execute_expression(expression)? {
+                    VoidConcrete::Void => Err(ExecutorError::Generic {
+                        message: format!("expected value from expression"),
+                    }),
+                    VoidConcrete::Rife(c) => {
+                        println!("{c:?}");
+                        Ok(VoidConcrete::Void)
+                    }
+                },
+                Operation::Echon(expression) => match self.execute_expression(expression)? {
+                    VoidConcrete::Void => Err(ExecutorError::Generic {
+                        message: format!("expected value from expression"),
+                    }),
+                    VoidConcrete::Rife(Concrete::String(s)) => {
+                        print!("{s}");
+                        Ok(VoidConcrete::Void)
+                    }
+                    VoidConcrete::Rife(Concrete::Integer(i)) => {
+                        print!("{i}");
+                        Ok(VoidConcrete::Void)
+                    }
+                    VoidConcrete::Rife(Concrete::Float(f)) => {
+                        print!("{f}");
+                        Ok(VoidConcrete::Void)
+                    }
+                    VoidConcrete::Rife(Concrete::Boolean(b)) => {
+                        print!("{b}");
+                        Ok(VoidConcrete::Void)
+                    }
+                    VoidConcrete::Rife(c) => Err(ExecutorError::Generic {
+                        message: format!("invalid run operand {:?}", c.kind()),
+                    }),
+                },
+                Operation::Call(expression, argument_expressions) => {
+                    match self.execute_expression(expression)? {
+                        VoidConcrete::Rife(Concrete::Function {
+                            scopes,
+                            expressions,
+                            arguments,
+                            evaluate_to_tail_expression,
+                        }) => {
+                            if argument_expressions.len() != arguments.len() {
+                                return Err(ExecutorError::Generic {
+                                    message: format!("incorrect number of arguments"),
+                                });
+                            }
+                            let func_env = Environment::from_weak_ignore_dropped(&scopes);
+                            let caller_env = std::mem::replace(&mut self.environment, func_env);
+                            self.environment.push_scope();
+                            for (arg_expr, (iden, kind_opt)) in
+                                argument_expressions.iter().zip(arguments.iter())
+                            {
+                                match self.execute_expression(arg_expr)? {
+                                    VoidConcrete::Void => {
+                                        return Err(ExecutorError::Generic {
+                                            message: format!("expected value from expression"),
+                                        });
+                                    }
+                                    VoidConcrete::Rife(c) => {
+                                        if let Some(kind) = kind_opt {
+                                            if c.kind() != *kind {
+                                                return Err(ExecutorError::Generic {
+                                                    message: String::from("type does not match"),
+                                                });
+                                            }
+                                        }
+                                        self.environment
+                                            .declare(iden.clone(), Variable::Initialized(c))
+                                            .map_err(|err| ExecutorError::Environment(err))?;
+                                    }
+                                }
+                            }
+                            let result = (|| {
+                                let mut last = VoidConcrete::Void;
+                                for expression in expressions.iter() {
+                                    last = self.execute_expression(expression)?;
+                                }
+                                if evaluate_to_tail_expression {
+                                    Ok(last)
+                                } else {
+                                    Ok(VoidConcrete::Void)
+                                }
+                            })();
+                            self.environment.pop_scope();
+                            self.environment = caller_env;
+                            result
+                        }
+                        c => Err(ExecutorError::Generic {
+                            message: format!("cannot call a {:?}; expected a function", c.kind()),
+                        }),
+                    }
+                }
             },
         }
     }
