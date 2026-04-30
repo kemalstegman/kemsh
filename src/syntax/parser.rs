@@ -1,11 +1,12 @@
 //!
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, rc::Rc};
 
 use crate::{
     abstract_lookahead::ErrorBubbledNLookahead,
     ast::{
-        CompoundLiteral, DeclareLValue, Expression, Identifier, Literal, MutableLValue, Operation,
+        BraceBlock, CompoundLiteral, DeclareLValue, Expression, Identifier, Literal, MutableLValue,
+        Operation,
     },
     executor::concrete::ConcreteKind,
     syntax::lexer::token::Token,
@@ -99,10 +100,29 @@ where
                     self.parse_expression(tok, Precedence::Prefix)?,
                 ))))
             }
-            Token::LEX_ECHO => todo!(),
-            Token::LEX_ECHON => todo!(),
+            Token::LEX_ECHO => {
+                let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                Ok(Expression::Operation(Box::new(Operation::Echo(
+                    self.parse_expression(tok, Precedence::Prefix)?,
+                ))))
+            }
+            Token::LEX_ECHON => {
+                let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                Ok(Expression::Operation(Box::new(Operation::Echon(
+                    self.parse_expression(tok, Precedence::Prefix)?,
+                ))))
+            }
             Token::DELIM_OPENBRACKET => {
                 let mut expressions = Vec::new();
+                if self
+                    .iter
+                    .bubble_next_if(|tok| matches!(tok, Token::DELIM_CLOSEBRACKET))?
+                    .is_some()
+                {
+                    return Ok(Expression::CompoundLiteral(CompoundLiteral::List(
+                        expressions,
+                    )));
+                }
                 loop {
                     let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
                     expressions.push(self.parse_expression(tok, Precedence::None)?);
@@ -126,7 +146,120 @@ where
                     expressions,
                 )))
             }
-            // list
+            Token::DELIM_OPENBRACE => {
+                let mut expressions = Vec::new();
+                let mut evaluate_to_tail_expression = false;
+                loop {
+                    let mut tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                    if let Token::DELIM_CLOSEBRACE = tok {
+                        break;
+                    }
+                    expressions.push(self.parse_expression(tok, Precedence::None)?);
+                    tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                    match tok {
+                        Token::DELIM_SEMICOLON => (),
+                        Token::DELIM_CLOSEBRACE => {
+                            evaluate_to_tail_expression = true;
+                            break;
+                        }
+                        tok => {
+                            return Err(ParserError::Generic {
+                                message: format!("expected ; or }} got {tok:?}"),
+                            });
+                        }
+                    }
+                }
+                if expressions.is_empty() {
+                    return Err(ParserError::Generic {
+                        message: format!("expected at least one expression inside brace block"),
+                    });
+                }
+                Ok(Expression::BraceBlock(BraceBlock {
+                    expressions,
+                    evaluate_to_tail_expression,
+                }))
+            }
+            Token::LEX_FN => {
+                let mut tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                match tok {
+                    Token::DELIM_OPENPARENTHESIS => (),
+                    _ => {
+                        return Err(ParserError::Generic {
+                            message: format!("expected ) got {tok:?}"),
+                        });
+                    }
+                }
+                tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                let mut arguments = Vec::new();
+                if let Token::UnreservedLexeme(i) = tok {
+                    arguments.push((i, None));
+                    tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                    loop {
+                        match tok {
+                            Token::DELIM_CLOSEPARENTHESIS => break,
+                            Token::DELIM_COMMA => {
+                                tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                                match tok {
+                                    Token::UnreservedLexeme(i) => arguments.push((i, None)),
+                                    tok => {
+                                        return Err(ParserError::Generic {
+                                            message: format!("expected identifier got {tok:?}"),
+                                        });
+                                    }
+                                }
+                                tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                            }
+                            tok => {
+                                return Err(ParserError::Generic {
+                                    message: format!("expected ) or , got {tok:?}"),
+                                });
+                            }
+                        }
+                    }
+                } else if let Token::DELIM_CLOSEPARENTHESIS = tok {
+                    ()
+                } else {
+                    return Err(ParserError::Generic {
+                        message: format!("expected identifier or ) got {tok:?}"),
+                    });
+                }
+                tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                match tok {
+                    Token::DELIM_OPENBRACE => (),
+                    _ => {
+                        return Err(ParserError::Generic {
+                            message: format!("expected {{ got {tok:?}"),
+                        });
+                    }
+                }
+                let mut expressions = Vec::new();
+                let mut tail = false;
+                loop {
+                    tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                    if let Token::DELIM_CLOSEBRACE = tok {
+                        break;
+                    }
+                    expressions.push(self.parse_expression(tok, Precedence::None)?);
+                    tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                    match tok {
+                        Token::DELIM_SEMICOLON => (),
+                        Token::DELIM_CLOSEBRACE => {
+                            tail = true;
+                            break;
+                        }
+                        tok => {
+                            return Err(ParserError::Generic {
+                                message: format!("expected ; or }} got {tok:?}"),
+                            });
+                        }
+                    }
+                }
+                Ok(Expression::CompoundLiteral(CompoundLiteral::Function(
+                    Rc::from(expressions),
+                    Rc::from(arguments),
+                    tail,
+                )))
+            }
             // map
             // option
             // result
@@ -140,7 +273,7 @@ where
     pub fn parse_nud_let(&mut self) -> Result<Expression, ParserError<E>> {
         let mut tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
         let identifier = match tok {
-            Token::UnreservedLexeme(identifier) => Identifier(identifier),
+            Token::UnreservedLexeme(i) => Identifier(i),
             _ => {
                 return Err(ParserError::Generic {
                     message: format!("expected identifier token got: {tok:?}"),
@@ -235,6 +368,37 @@ where
             }
             Token::DELIM_COLON => self.parse_led_type(lhs),
             Token::DELIM_EQUAL => self.parse_led_assign(lhs),
+            Token::DELIM_OPENPARENTHESIS => {
+                let mut arguments = Vec::new();
+                if self
+                    .iter
+                    .bubble_next_if(|tok| matches!(tok, Token::DELIM_CLOSEPARENTHESIS))?
+                    .is_none()
+                {
+                    loop {
+                        let tok = self.iter.next().ok_or(ParserError::Incomplete).flatten()?;
+                        arguments.push(self.parse_expression(tok, Precedence::None)?);
+                        if self
+                            .iter
+                            .bubble_next_if(|tok| matches!(tok, Token::DELIM_COMMA))?
+                            .is_none()
+                        {
+                            break;
+                        }
+                    }
+                    match self.iter.next().ok_or(ParserError::Incomplete).flatten()? {
+                        Token::DELIM_CLOSEPARENTHESIS => (),
+                        tok => {
+                            return Err(ParserError::Generic {
+                                message: format!("expected ) got {tok:?}"),
+                            });
+                        }
+                    }
+                }
+                Ok(Expression::Operation(Box::new(Operation::Call(
+                    lhs, arguments,
+                ))))
+            }
             _ => Err(ParserError::Generic {
                 message: format!("unexpected token: {tok:?}"),
             }),
@@ -277,6 +441,7 @@ where
             Token::LEX_MAP => Ok(ConcreteKind::Map),
             Token::LEX_OPTION => Ok(ConcreteKind::Option),
             Token::LEX_RESULT => Ok(ConcreteKind::Result),
+            Token::LEX_FUNCTION => Ok(ConcreteKind::Function),
             _ => Err(ParserError::Generic {
                 message: format!("unexpected token: {tok:?}"),
             }),
@@ -331,6 +496,7 @@ impl From<&Token> for Precedence {
                 Precedence::Factor
             }
             Token::DELIM_EQUAL | Token::DELIM_COLON => Precedence::Assign,
+            Token::DELIM_OPENPARENTHESIS => Precedence::Call,
             _ => Precedence::None,
         }
     }
@@ -344,6 +510,7 @@ pub enum Precedence {
     Term,   // +, -
     Factor, // *, /, %
     Prefix, // -
+    Call,
 }
 impl Precedence {
     pub fn is_left_associative(&self) -> bool {

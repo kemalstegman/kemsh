@@ -52,7 +52,7 @@ fn repl() -> Result<i64, Box<dyn std::error::Error>> {
             Ok(expressions) => expressions,
         };
         for expression in expressions {
-            match executor.execute_expression(expression) {
+            match executor.execute_expression(&expression) {
                 Ok(VoidConcrete::Void) => (),
                 Ok(VoidConcrete::Rife(c)) => println!("{:?}", c),
                 Err(ExecutorError::Exit(status)) => return Ok(status),
