@@ -1,0 +1,90 @@
+// let var[: type][= val];
+
+// i64
+let s_int: i64 = -1;
+let s_int: i64 = 1i64;
+
+// u64
+let u_int: u64 = 1;
+let u_int: u64 = 1u64;
+
+// bool
+let b_var: bool = true;
+let b_var: bool = false;
+
+// string
+let svar = "";
+let svar = #""#;
+let svar = ##""##;
+let svar = e"\n";
+let svar = e#"\n"#;
+let svar = e#"this is the variable b_var: {b_var}"#;
+
+// list
+let l_var: list = [1, "", true];
+let ele_var: bool = l_var[2];
+let len_var: u64 = l_var.length;
+
+// map
+let m_var: map = [{
+    a: "fifty",
+    b: true,
+    "c with spaces": 5,
+    #"d with spaces"#: -5,
+}];
+let val_var: bool = m_var["b"];
+let val_var: i64 = m_var["d with spaces"];
+
+// option
+let o_var: option<i64> = some 5;
+let o_var: option<i64> = none;
+let _: bool = o_var.is_some;
+let _: i64 = o_var.unwrap_or(0);
+let _: i64 = ~ o_var;
+
+// result
+let r_var: result<string, bool> = ok "";
+let r_var: result<string, bool> = err false;
+let _: bool = r_var.is_ok;
+let _: bool = r_var.is_err;
+let _: option<string> = r_var.ok;
+let _: option<bool> = r_var.err;
+
+let pdir: result<string, map> = cd "";
+let pdir: result<string, map> = cd ["", ""];
+
+let f: function = fn(a){
+    return a;
+};
+let f: function = fn(a){
+    a
+};
+let g: function = fn(a: u64){
+    a + 4
+};
+let h: function = fn(){
+    fn(a: u64){ a + 1 }
+}();
+
+let _: u64 = if true { 1u64 } else { 3u64 };
+
+loop {
+    break 2;
+}
+for a in 0..2 {
+    break;
+}
+while true {
+    break;
+}
+
+
+let job1: jcmd = process "ls";
+let pjob: jcmd = job1 | process ["grep", #"mydir"#];
+let pjob: jcmd = (process ["grep", #"mydir"#]) < job1;
+let jres: jexit = run pjob;
+let jres: jexit = :ls;
+let backgroundjob: jhandle = spawn (process "ls");
+let jres: jexit = wait backgroundjob;
+
+let myfile: fhandle = _;
