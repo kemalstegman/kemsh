@@ -92,9 +92,9 @@ impl<'a> Lexer<'a> {
                 State::Start if ch == '0' => State::NumberZero,
                 State::Start if ch.is_ascii_digit() => State::NumberDigits,
                 State::Start if ch == ':' && !last_tok_lexeme => State::Shell,
-                State::Start if ch.is_ascii_punctuation() => State::Delimiter,
                 State::Start if ch == '#' => State::RawStringPrefix { prefix: 1 },
                 State::Start if ch == '"' => State::RawString { prefix: 0 },
+                State::Start if ch.is_ascii_punctuation() => State::Delimiter,
                 State::Start => {
                     return Some(Err(LexerError::E(format!(
                         "unexpected first character {ch}"
