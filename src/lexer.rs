@@ -30,7 +30,7 @@ pub enum LexerError<'a, ES, L, D, SH>
 where
     ES: Lex<'a>,
     L: Lex<'a>,
-    D: Lex<'a>,
+    D: DelimiterLex<'a>,
     SH: Lex<'a>,
 {
     Incomplete,
@@ -50,7 +50,7 @@ impl<'a, ES, L, D, SH> Lexer<'a, ES, L, D, SH>
 where
     ES: Lex<'a>,
     L: Lex<'a>,
-    D: Lex<'a>,
+    D: DelimiterLex<'a>,
     SH: Lex<'a>,
 {
     pub fn new(lexable: &'a str) -> Self {
@@ -126,10 +126,13 @@ where
                     if ch.is_ascii_punctuation() {
                         continue;
                     } else {
+                        // this is O(n^2) which is kind of shit
                         let delimiter_string = &self.lexable[..index];
-                        self.lexable = &self.lexable[index..];
-                        match D::lex(delimiter_string) {
-                            Ok(d) => return Some(Ok(Token::Delimiter(d))),
+                        match D::lex_delimiter(delimiter_string) {
+                            Ok((consumed, d)) => {
+                                self.lexable = &self.lexable[consumed..];
+                                return Some(Ok(Token::Delimiter(d)));
+                            }
                             Err(e) => return Some(Err(LexerError::Delimiter(e))),
                         }
                     }
@@ -357,9 +360,11 @@ where
             State::Start => None,
             State::Delimiter => {
                 let delimiter_string = self.lexable;
-                self.lexable = "";
-                match D::lex(delimiter_string) {
-                    Ok(d) => return Some(Ok(Token::Delimiter(d))),
+                match D::lex_delimiter(delimiter_string) {
+                    Ok((consumed, d)) => {
+                        self.lexable = &self.lexable[consumed..];
+                        return Some(Ok(Token::Delimiter(d)));
+                    }
                     Err(e) => return Some(Err(LexerError::Delimiter(e))),
                 }
             }
@@ -455,7 +460,7 @@ impl<'a, ES, L, D, SH> Iterator for Lexer<'a, ES, L, D, SH>
 where
     ES: Lex<'a>,
     L: Lex<'a>,
-    D: Lex<'a>,
+    D: DelimiterLex<'a>,
     SH: Lex<'a>,
 {
     type Item = Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>;
@@ -468,7 +473,36 @@ impl<'a, ES, L, D, SH> std::iter::FusedIterator for Lexer<'a, ES, L, D, SH>
 where
     ES: Lex<'a>,
     L: Lex<'a>,
-    D: Lex<'a>,
+    D: DelimiterLex<'a>,
     SH: Lex<'a>,
 {
+}
+
+pub trait DelimiterLex<'a>: Sized {
+    type Err;
+    /// Given an accumulated punctuation string, returns a tuple of
+    /// `(consumed_slice, delimiter_token)`. The `consumed_slice` tells
+    /// the lexer how many bytes to advance, leaving any remainder in `lexable`.
+    fn lex_delimiter(lexable: &'a str) -> Result<(usize, Self), Self::Err>;
+}
+
+impl<'a> DelimiterLex<'a> for &'a str {
+    type Err = std::convert::Infallible;
+    fn lex_delimiter(lexable: &'a str) -> Result<(usize, Self), Self::Err> {
+        const MULTI_DELIMS: &[&str] = &["..", "::", "==", "!=", "<=", ">=", "=>", "->"];
+
+        for &delim in MULTI_DELIMS {
+            if lexable.starts_with(delim) {
+                return Ok((delim.len(), delim));
+            }
+        }
+
+        if let Some(ch) = lexable.chars().next() {
+            let len = ch.len_utf8();
+            let sub = &lexable[..len];
+            return Ok((sub.len(), sub));
+        }
+
+        Ok((0, ""))
+    }
 }
