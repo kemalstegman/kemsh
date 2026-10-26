@@ -137,7 +137,20 @@ where
                 State::NumberZero => match ch {
                     'x' | 'X' => State::HexDigits,
                     'b' | 'B' => State::BinaryDigits,
-                    '.' => State::FloatDot,
+                    '.' => {
+                        if !self.lexable[index + 1..].is_empty()
+                            && self.lexable[index + 1..]
+                                .chars()
+                                .next()
+                                .unwrap()
+                                .is_ascii_digit()
+                        {
+                            State::FloatDot
+                        } else {
+                            self.lexable = &self.lexable[index..];
+                            return Some(Ok(Token::SInteger(0)));
+                        }
+                    }
                     ch if ch.is_ascii_digit() => State::NumberDigits,
                     'i' => State::SInteger1,
                     'u' => State::UInteger1,
@@ -148,7 +161,28 @@ where
                 },
                 State::NumberDigits => match ch {
                     ch if ch.is_ascii_digit() => continue,
-                    '.' => State::FloatDot,
+                    '.' => {
+                        if !self.lexable[index + 1..].is_empty()
+                            && self.lexable[index + 1..]
+                                .chars()
+                                .next()
+                                .unwrap()
+                                .is_ascii_digit()
+                        {
+                            State::FloatDot
+                        } else {
+                            let integer_string = &self.lexable[..index];
+                            self.lexable = &self.lexable[index..];
+                            match integer_string.parse::<i64>() {
+                                Ok(n) => return Some(Ok(Token::SInteger(n))),
+                                Err(e) => {
+                                    return Some(Err(LexerError::E(format!(
+                                        "error parsing integer string: {integer_string:?} -> {e:?}"
+                                    ))));
+                                }
+                            }
+                        }
+                    }
                     'i' => State::SInteger1,
                     'u' => State::UInteger1,
                     _ => {
@@ -196,13 +230,7 @@ where
                         }
                     }
                 }
-                State::FloatDot => {
-                    if ch.is_ascii_digit() {
-                        State::FloatDigits
-                    } else {
-                        return Some(Err(LexerError::E(format!("expected digit got {ch}"))));
-                    }
-                }
+                State::FloatDot => State::FloatDigits,
                 State::FloatDigits => {
                     if ch.is_ascii_digit() {
                         continue;
@@ -386,7 +414,7 @@ where
                     }
                 }
             }
-            State::FloatDot => return Some(Err(LexerError::E(format!("expected digit got EOF")))),
+            State::FloatDot => unreachable!(),
             State::FloatDigits => {
                 let float_string = self.lexable;
                 self.lexable = "";
