@@ -43,7 +43,8 @@ fn delimiters_00() {
         lex_vec("; [] ; { }"),
         vec![
             Ok(Token::Delimiter(";")),
-            Ok(Token::Delimiter("[]")),
+            Ok(Token::Delimiter("[")),
+            Ok(Token::Delimiter("]")),
             Ok(Token::Delimiter(";")),
             Ok(Token::Delimiter("{")),
             Ok(Token::Delimiter("}")),
@@ -211,5 +212,25 @@ fn shell_whitespace_00() {
             Ok(Token::Shell("   spaced_command   ")),
             Ok(Token::Delimiter(";")),
         ]
+    );
+}
+
+#[test]
+fn test_punctuation_unclumping_00() {
+    assert_eq!(
+        lex_vec("+-*"),
+        vec![
+            Ok(Token::Delimiter("+")),
+            Ok(Token::Delimiter("-")),
+            Ok(Token::Delimiter("*")),
+        ]
+    );
+}
+
+#[test]
+fn test_multichar_delimiter_splitting_00() {
+    assert_eq!(
+        lex_vec("..="),
+        vec![Ok(Token::Delimiter("..")), Ok(Token::Delimiter("=")),]
     );
 }
