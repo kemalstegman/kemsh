@@ -1,8 +1,7 @@
-mod lexer;
-
 fn main() {
-    let mut lexer_struct = lexer::Lexer::new("###\"abc\"wda\"###");
-    while let Some(tok_res) = lexer_struct.lex::<&str, &str, &str, &str>() {
+    for tok_res in
+        kemsh::lexer::Lexer::<&str, &str, &str, &str>::new("###\"abc\"wda\"###").into_iter()
+    {
         println!("{tok_res:?}");
     }
 }

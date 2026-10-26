@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum Token<'a, ES, L, D, SH> {
     RawString(&'a str),
     EscapedString(ES),
@@ -25,7 +25,7 @@ impl<'a> Lex<'a> for &'a str {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum LexerError<'a, ES, L, D, SH>
 where
     ES: Lex<'a>,
@@ -41,26 +41,33 @@ where
     E(String),
 }
 
-pub struct Lexer<'a> {
+pub struct Lexer<'a, ES, L, D, SH> {
     lexable: &'a str,
     last_tok_lexeme: bool,
+    _marker: std::marker::PhantomData<(ES, L, D, SH)>,
 }
-impl<'a> Lexer<'a> {
+impl<'a, ES, L, D, SH> Lexer<'a, ES, L, D, SH>
+where
+    ES: Lex<'a>,
+    L: Lex<'a>,
+    D: Lex<'a>,
+    SH: Lex<'a>,
+{
     pub fn new(lexable: &'a str) -> Self {
         Self {
             lexable,
             last_tok_lexeme: false,
+            _marker: std::marker::PhantomData,
         }
     }
-    pub fn lex<ES, L, D, SH>(
-        &mut self,
-    ) -> Option<Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>>
-    where
-        ES: Lex<'a>,
-        L: Lex<'a>,
-        D: Lex<'a>,
-        SH: Lex<'a>,
-    {
+    pub fn lex(&mut self) -> Option<Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>> {
+        let res = self._lex();
+        if matches!(res, Some(Err(_))) {
+            self.lexable = "";
+        }
+        res
+    }
+    fn _lex(&mut self) -> Option<Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>> {
         self.lexable = self.lexable.trim_ascii();
         enum State {
             Start,
@@ -403,7 +410,7 @@ impl<'a> Lexer<'a> {
                 suffix: _,
             } => Some(Err(LexerError::Incomplete)),
             State::Shell => {
-                let shell_string = self.lexable;
+                let shell_string = &self.lexable[1..];
                 self.lexable = "";
                 match SH::lex(shell_string) {
                     Ok(sh) => {
@@ -415,4 +422,25 @@ impl<'a> Lexer<'a> {
             }
         }
     }
+}
+impl<'a, ES, L, D, SH> Iterator for Lexer<'a, ES, L, D, SH>
+where
+    ES: Lex<'a>,
+    L: Lex<'a>,
+    D: Lex<'a>,
+    SH: Lex<'a>,
+{
+    type Item = Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.lex()
+    }
+}
+
+impl<'a, ES, L, D, SH> std::iter::FusedIterator for Lexer<'a, ES, L, D, SH>
+where
+    ES: Lex<'a>,
+    L: Lex<'a>,
+    D: Lex<'a>,
+    SH: Lex<'a>,
+{
 }
