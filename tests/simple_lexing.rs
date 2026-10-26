@@ -9,14 +9,14 @@ fn lex_vec(
 }
 
 #[test]
-fn test_raw_string_00() {
+fn raw_string_00() {
     assert_eq!(
         lex_vec(r####"###"abc"wda"###"####),
         vec![Ok(Token::RawString(r#"abc"wda"#)),]
     );
 }
 #[test]
-fn test_raw_string_01() {
+fn raw_string_01() {
     assert_eq!(
         lex_vec(r####""abcwda""####),
         vec![Ok(Token::RawString(r#"abcwda"#)),]
@@ -24,7 +24,7 @@ fn test_raw_string_01() {
 }
 
 #[test]
-fn test_numbers_00() {
+fn numbers_00() {
     assert_eq!(
         lex_vec("123 0x45 0b101 123u64 123i64"),
         vec![
@@ -38,7 +38,7 @@ fn test_numbers_00() {
 }
 
 #[test]
-fn test_delimiters_00() {
+fn delimiters_00() {
     assert_eq!(
         lex_vec("; [] ; { }"),
         vec![
@@ -52,7 +52,7 @@ fn test_delimiters_00() {
 }
 
 #[test]
-fn test_lexemes_00() {
+fn lexemes_00() {
     assert_eq!(
         lex_vec("abc def"),
         vec![Ok(Token::Lexeme("abc")), Ok(Token::Lexeme("def")),]
@@ -60,7 +60,7 @@ fn test_lexemes_00() {
 }
 
 #[test]
-fn test_colon_00() {
+fn colon_00() {
     assert_eq!(
         lex_vec("abc : def"),
         vec![
@@ -72,7 +72,7 @@ fn test_colon_00() {
 }
 
 #[test]
-fn test_colon_01() {
+fn colon_01() {
     assert_eq!(
         lex_vec("abc; : def"),
         vec![
@@ -84,7 +84,7 @@ fn test_colon_01() {
 }
 
 #[test]
-fn test_colon_02() {
+fn colon_02() {
     assert_eq!(
         lex_vec("abc; :def;"),
         vec![
@@ -97,7 +97,7 @@ fn test_colon_02() {
 }
 
 #[test]
-fn test_floats_00() {
+fn floats_00() {
     assert_eq!(
         lex_vec("123.45 0.5"),
         vec![Ok(Token::Float(123.45)), Ok(Token::Float(0.5)),]
@@ -105,18 +105,111 @@ fn test_floats_00() {
 }
 
 #[test]
-fn test_float_error_00() {
-    assert!(lex_vec("123.")[0].is_err());
+fn float_00() {
+    assert_eq!(
+        lex_vec("123."),
+        vec![Ok(Token::SInteger(123)), Ok(Token::Delimiter(".")),]
+    );
 }
 
 #[test]
-fn test_zero_suffixes_00() {
+fn zero_suffixes_00() {
     assert_eq!(
         lex_vec("0 0i64 0u64"),
         vec![
             Ok(Token::SInteger(0)),
             Ok(Token::SInteger(0)),
             Ok(Token::UInteger(0)),
+        ]
+    );
+}
+
+#[test]
+fn range_00() {
+    assert_eq!(
+        lex_vec("12..15"),
+        vec![
+            Ok(Token::SInteger(12)),
+            Ok(Token::Delimiter("..")),
+            Ok(Token::SInteger(15)),
+        ]
+    );
+}
+
+#[test]
+fn incomplete_suffix_00() {
+    let res_i = lex_vec("123i");
+    assert!(res_i[0].is_err());
+
+    let res_u = lex_vec("456u");
+    assert!(res_u[0].is_err());
+}
+
+#[test]
+fn malformed_base_numbers_00() {
+    let res_hex = lex_vec("0xG");
+    assert!(res_hex[0].is_err());
+
+    let res_bin = lex_vec("0b2");
+    assert!(res_bin[0].is_err());
+}
+
+#[test]
+fn consecutive_tokens_00() {
+    assert_eq!(
+        lex_vec("let x: i64 = 42..50;"),
+        vec![
+            Ok(Token::Lexeme("let")),
+            Ok(Token::Lexeme("x")),
+            Ok(Token::Delimiter(":")),
+            Ok(Token::Lexeme("i64")),
+            Ok(Token::Delimiter("=")),
+            Ok(Token::SInteger(42)),
+            Ok(Token::Delimiter("..")),
+            Ok(Token::SInteger(50)),
+            Ok(Token::Delimiter(";")),
+        ]
+    );
+}
+
+#[test]
+fn shell_eof_00() {
+    assert_eq!(
+        lex_vec("run; :echo hello world"),
+        vec![
+            Ok(Token::Lexeme("run")),
+            Ok(Token::Delimiter(";")),
+            Ok(Token::Shell("echo hello world")),
+        ]
+    );
+}
+
+#[test]
+fn shell_multiple_00() {
+    assert_eq!(
+        lex_vec("task1; :cmd_one; task2; :cmd_two;"),
+        vec![
+            Ok(Token::Lexeme("task1")),
+            Ok(Token::Delimiter(";")),
+            Ok(Token::Shell("cmd_one")),
+            Ok(Token::Delimiter(";")),
+            Ok(Token::Lexeme("task2")),
+            Ok(Token::Delimiter(";")),
+            Ok(Token::Shell("cmd_two")),
+            Ok(Token::Delimiter(";")),
+        ]
+    );
+}
+
+#[test]
+fn shell_whitespace_00() {
+    assert_eq!(
+        lex_vec("foo; :   spaced_command   ;"),
+        vec![
+            Ok(Token::Lexeme("foo")),
+            Ok(Token::Delimiter(";")),
+            Ok(Token::Shell("   spaced_command   ")),
+            Ok(Token::Delimiter(";")),
         ]
     );
 }
