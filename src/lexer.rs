@@ -1,44 +1,95 @@
+use std::convert::Infallible;
+
 #[derive(Debug, PartialEq, PartialOrd)]
-pub enum Token<'a, ES, L, D, SH> {
+pub enum Token<'a, EscapedString, Lexeme, Delimiter, Shell> {
     RawString(&'a str),
-    EscapedString(ES),
+    EscapedString(EscapedString),
     SInteger(i64),
     UInteger(u64),
     Float(f64),
-    Lexeme(L),
-    Delimiter(D),
-    Shell(SH),
+    Lexeme(Lexeme),
+    Delimiter(Delimiter),
+    Shell(Shell),
 }
 
-// a better name is needed. this is a trait describing
-// something that represents a Token (above) that can be
-// created via some lexing function given a lexable string
-pub trait Lex<'a>: Sized {
-    type Err;
-    fn lex(lexable: &'a str) -> Result<Self, Self::Err>;
+pub trait ConsumingLexer {
+    type Lexed<'a>;
+    type Error;
+    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Lexed<'a>, Self::Error>;
 }
 
-impl<'a> Lex<'a> for &'a str {
-    type Err = std::convert::Infallible;
-    fn lex(lexable: &'a str) -> Result<Self, Self::Err> {
+pub trait ParsingLexer {
+    type Lexed<'a>;
+    type Error;
+    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error>;
+}
+
+pub struct EscapedStringLexer;
+
+impl ParsingLexer for EscapedStringLexer {
+    type Lexed<'a> = &'a str;
+    type Error = Infallible;
+    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
+        Ok(lexable)
+    }
+}
+
+pub struct LexemeLexer;
+
+impl ParsingLexer for LexemeLexer {
+    type Lexed<'a> = &'a str;
+    type Error = Infallible;
+    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
+        Ok(lexable)
+    }
+}
+
+pub struct DelimiterLexer;
+
+impl ConsumingLexer for DelimiterLexer {
+    type Lexed<'a> = &'a str;
+    type Error = Infallible;
+    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
+        const MULTI_DELIMS: &[&str] = &["..", "::", "==", "!=", "<=", ">=", "=>", "->"];
+        for &delim in MULTI_DELIMS {
+            if lexable.starts_with(delim) {
+                *lexable = &lexable[delim.len()..];
+                return Ok(delim);
+            }
+        }
+        let ch = lexable.chars().next().unwrap();
+        let len = ch.len_utf8();
+        let delim = &lexable[..len];
+        *lexable = &lexable[len..];
+
+        Ok(delim)
+    }
+}
+
+pub struct ShellLexer;
+
+impl ParsingLexer for ShellLexer {
+    type Lexed<'a> = &'a str;
+    type Error = Infallible;
+    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
         Ok(lexable)
     }
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub enum LexerError<'a, ES, L, D, SH>
-where
-    ES: Lex<'a>,
-    L: Lex<'a>,
-    D: DelimiterLex<'a>,
-    SH: Lex<'a>,
-{
+pub enum LexerError<ESE, LE, DE, SHE> {
     Incomplete,
-    Lexeme(L::Err),
-    Delimiter(D::Err),
-    EscapedString(ES::Err),
-    Shell(SH::Err),
-    E(String),
+    UnexpectedFirstChar(char),
+    ExpectedCharGotChar(&'static [char], char),
+    Lexeme(LE),
+    Delimiter(DE),
+    EscapedString(ESE),
+    Shell(SHE),
+    SInteger(String),
+    UInteger(String),
+    Float(String),
+    Binary(String),
+    Hexadecimal(String),
 }
 
 pub struct Lexer<'a, ES, L, D, SH> {
@@ -46,12 +97,12 @@ pub struct Lexer<'a, ES, L, D, SH> {
     last_tok_lexeme: bool,
     _marker: std::marker::PhantomData<(ES, L, D, SH)>,
 }
-impl<'a, ES, L, D, SH> Lexer<'a, ES, L, D, SH>
+impl<'a, ESL, LL, DL, SHL> Lexer<'a, ESL, LL, DL, SHL>
 where
-    ES: Lex<'a>,
-    L: Lex<'a>,
-    D: DelimiterLex<'a>,
-    SH: Lex<'a>,
+    ESL: ParsingLexer,
+    LL: ParsingLexer,
+    DL: ConsumingLexer,
+    SHL: ParsingLexer,
 {
     pub fn new(lexable: &'a str) -> Self {
         Self {
@@ -60,19 +111,161 @@ where
             _marker: std::marker::PhantomData,
         }
     }
-    pub fn lex(&mut self) -> Option<Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>> {
-        let res = self._lex();
-        if matches!(res, Some(Err(_))) {
-            self.lexable = "";
+    pub fn lex(
+        &mut self,
+    ) -> Option<
+        Result<
+            Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+            LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+        >,
+    > {
+        if self.lexable.is_empty() {
+            return None;
         }
-        res
+        let res = self.lex_();
+        if res.is_err() {
+            self.lexable = &self.lexable[..0];
+        }
+        Some(res)
     }
-    fn _lex(&mut self) -> Option<Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>> {
+    fn lex_signed_integer(
+        &mut self,
+        integer_bytes: usize,
+        consume_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let integer_string = &self.lexable[..integer_bytes];
+        match integer_string.parse::<i64>() {
+            Ok(n) => {
+                self.lexable = &self.lexable[consume_bytes..];
+                Ok(Token::SInteger(n))
+            }
+            Err(e) => Err(LexerError::SInteger(format!("{e}: {integer_string}"))),
+        }
+    }
+    fn lex_unsigned_integer(
+        &mut self,
+        integer_bytes: usize,
+        consume_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let integer_string = &self.lexable[..integer_bytes];
+        match integer_string.parse::<u64>() {
+            Ok(n) => {
+                self.lexable = &self.lexable[consume_bytes..];
+                Ok(Token::UInteger(n))
+            }
+            Err(e) => Err(LexerError::UInteger(format!("{e}: {integer_string}"))),
+        }
+    }
+    fn lex_float(
+        &mut self,
+        float_bytes: usize,
+        consume_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let float_string = &self.lexable[..float_bytes];
+        match float_string.parse::<f64>() {
+            Ok(n) => {
+                self.lexable = &self.lexable[consume_bytes..];
+                Ok(Token::Float(n))
+            }
+            Err(e) => Err(LexerError::Float(format!("{e}: {float_string}"))),
+        }
+    }
+    fn lex_binary(
+        &mut self,
+        binary_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let binary_string = &self.lexable[2..binary_bytes];
+        match u64::from_str_radix(binary_string, 2) {
+            Ok(n) => {
+                self.lexable = &self.lexable[binary_bytes..];
+                Ok(Token::UInteger(n))
+            }
+            Err(e) => Err(LexerError::Binary(format!("{e}: {binary_string}"))),
+        }
+    }
+    fn lex_hexadecimal(
+        &mut self,
+        hexadecimal_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let hexadecimal_string = &self.lexable[2..hexadecimal_bytes];
+        match u64::from_str_radix(hexadecimal_string, 16) {
+            Ok(n) => {
+                self.lexable = &self.lexable[hexadecimal_bytes..];
+                Ok(Token::UInteger(n))
+            }
+            Err(e) => Err(LexerError::Hexadecimal(format!(
+                "{e}: {hexadecimal_string}"
+            ))),
+        }
+    }
+    fn lex_lexeme(
+        &mut self,
+        lexeme_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let lexeme_string = &self.lexable[..lexeme_bytes];
+        match LL::lex(lexeme_string) {
+            Ok(l) => {
+                self.lexable = &self.lexable[lexeme_bytes..];
+                self.last_tok_lexeme = true;
+                return Ok(Token::Lexeme(l));
+            }
+            Err(e) => return Err(LexerError::Lexeme(e)),
+        }
+    }
+    fn _lex_escaped_string(
+        &mut self,
+        _escaped_string_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        todo!()
+    }
+    fn lex_shell(
+        &mut self,
+        shell_bytes: usize,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
+        let shell_string = &self.lexable[1..shell_bytes];
+        self.lexable = &self.lexable[shell_bytes..];
+        match SHL::lex(shell_string) {
+            Ok(sh) => {
+                self.last_tok_lexeme = true;
+                return Ok(Token::Shell(sh));
+            }
+            Err(e) => return Err(LexerError::Shell(e)),
+        }
+    }
+    fn lex_(
+        &mut self,
+    ) -> Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    > {
         self.lexable = self.lexable.trim_ascii();
         enum State {
             Start,
             Lexeme,
-            Delimiter,
             NumberZero,
             NumberDigits,
             HexDigits,
@@ -101,40 +294,18 @@ where
                 State::Start if ch == ':' && !last_tok_lexeme => State::Shell,
                 State::Start if ch == '#' => State::RawStringPrefix { prefix: 1 },
                 State::Start if ch == '"' => State::RawString { prefix: 0 },
-                State::Start if ch.is_ascii_punctuation() => State::Delimiter,
+                State::Start if ch.is_ascii_punctuation() => match DL::lex(&mut self.lexable) {
+                    Err(e) => return Err(LexerError::Delimiter(e)),
+                    Ok(l) => return Ok(Token::Delimiter(l)),
+                },
                 State::Start => {
-                    return Some(Err(LexerError::E(format!(
-                        "unexpected first character {ch}"
-                    ))));
+                    return Err(LexerError::UnexpectedFirstChar(ch));
                 }
                 State::Lexeme => {
                     if ch.is_ascii_alphanumeric() || ch == '_' {
                         continue;
                     } else {
-                        let lexeme_string = &self.lexable[..index];
-                        self.lexable = &self.lexable[index..];
-                        match L::lex(lexeme_string) {
-                            Ok(l) => {
-                                self.last_tok_lexeme = true;
-                                return Some(Ok(Token::Lexeme(l)));
-                            }
-                            Err(e) => return Some(Err(LexerError::Lexeme(e))),
-                        }
-                    }
-                }
-                State::Delimiter => {
-                    if ch.is_ascii_punctuation() {
-                        continue;
-                    } else {
-                        // this is O(n^2) which is kind of shit
-                        let delimiter_string = &self.lexable[..index];
-                        match D::lex_delimiter(delimiter_string) {
-                            Ok((consumed, d)) => {
-                                self.lexable = &self.lexable[consumed..];
-                                return Some(Ok(Token::Delimiter(d)));
-                            }
-                            Err(e) => return Some(Err(LexerError::Delimiter(e))),
-                        }
+                        return self.lex_lexeme(index);
                     }
                 }
                 State::NumberZero => match ch {
@@ -151,7 +322,7 @@ where
                             State::FloatDot
                         } else {
                             self.lexable = &self.lexable[index..];
-                            return Some(Ok(Token::SInteger(0)));
+                            return Ok(Token::SInteger(0));
                         }
                     }
                     ch if ch.is_ascii_digit() => State::NumberDigits,
@@ -159,7 +330,7 @@ where
                     'u' => State::UInteger1,
                     _ => {
                         self.lexable = &self.lexable[index..];
-                        return Some(Ok(Token::SInteger(0)));
+                        return Ok(Token::SInteger(0));
                     }
                 },
                 State::NumberDigits => match ch {
@@ -174,63 +345,25 @@ where
                         {
                             State::FloatDot
                         } else {
-                            let integer_string = &self.lexable[..index];
-                            self.lexable = &self.lexable[index..];
-                            match integer_string.parse::<i64>() {
-                                Ok(n) => return Some(Ok(Token::SInteger(n))),
-                                Err(e) => {
-                                    return Some(Err(LexerError::E(format!(
-                                        "error parsing integer string: {integer_string:?} -> {e:?}"
-                                    ))));
-                                }
-                            }
+                            return self.lex_signed_integer(index, index);
                         }
                     }
                     'i' => State::SInteger1,
                     'u' => State::UInteger1,
-                    _ => {
-                        let integer_string = &self.lexable[..index];
-                        self.lexable = &self.lexable[index..];
-                        match integer_string.parse::<i64>() {
-                            Ok(n) => return Some(Ok(Token::SInteger(n))),
-                            Err(e) => {
-                                return Some(Err(LexerError::E(format!(
-                                    "error parsing integer string: {integer_string:?} -> {e:?}"
-                                ))));
-                            }
-                        }
-                    }
+                    _ => return self.lex_signed_integer(index, index),
                 },
                 State::HexDigits => {
                     if ch.is_ascii_hexdigit() {
                         continue;
                     } else {
-                        let hex_string = &self.lexable[2..index];
-                        self.lexable = &self.lexable[index..];
-                        match u64::from_str_radix(hex_string, 16) {
-                            Ok(n) => return Some(Ok(Token::UInteger(n))),
-                            Err(e) => {
-                                return Some(Err(LexerError::E(format!(
-                                    "error parsing hex number string: {hex_string:?} -> {e:?}"
-                                ))));
-                            }
-                        }
+                        return self.lex_hexadecimal(index);
                     }
                 }
                 State::BinaryDigits => {
                     if ch == '0' || ch == '1' {
                         continue;
                     } else {
-                        let binary_string = &self.lexable[2..index];
-                        self.lexable = &self.lexable[index..];
-                        match u64::from_str_radix(binary_string, 2) {
-                            Ok(n) => return Some(Ok(Token::UInteger(n))),
-                            Err(e) => {
-                                return Some(Err(LexerError::E(format!(
-                                    "error parsing binary number string: {binary_string:?} -> {e:?}"
-                                ))));
-                            }
-                        }
+                        return self.lex_binary(index);
                     }
                 }
                 State::FloatDot => State::FloatDigits,
@@ -238,55 +371,28 @@ where
                     if ch.is_ascii_digit() {
                         continue;
                     } else {
-                        let float_string = &self.lexable[..index];
-                        self.lexable = &self.lexable[index..];
-                        match float_string.parse::<f64>() {
-                            Ok(n) => return Some(Ok(Token::Float(n))),
-                            Err(e) => {
-                                return Some(Err(LexerError::E(format!(
-                                    "error parsing float string: {float_string:?} -> {e:?}"
-                                ))));
-                            }
-                        }
+                        return self.lex_float(index, index);
                     }
                 }
                 State::SInteger1 if ch == '6' => State::SInteger2,
                 State::SInteger1 => {
-                    return Some(Err(LexerError::E(format!("expected 6 got {ch}"))));
+                    return Err(LexerError::ExpectedCharGotChar(&['6'], ch));
                 }
                 State::SInteger2 if ch == '4' => {
-                    let integer_string = &self.lexable[..index - 2];
-                    self.lexable = &self.lexable[index + 1..];
-                    match integer_string.parse::<i64>() {
-                        Ok(n) => return Some(Ok(Token::SInteger(n))),
-                        Err(e) => {
-                            return Some(Err(LexerError::E(format!(
-                                "error parsing integer string: {integer_string:?} -> {e:?}"
-                            ))));
-                        }
-                    }
+                    return self.lex_signed_integer(index - 2, index + 1);
                 }
                 State::SInteger2 => {
-                    return Some(Err(LexerError::E(format!("expected 4 got {ch}"))));
+                    return Err(LexerError::ExpectedCharGotChar(&['4'], ch));
                 }
                 State::UInteger1 if ch == '6' => State::UInteger2,
                 State::UInteger1 => {
-                    return Some(Err(LexerError::E(format!("expected 6 got {ch}"))));
+                    return Err(LexerError::ExpectedCharGotChar(&['6'], ch));
                 }
                 State::UInteger2 if ch == '4' => {
-                    let integer_string = &self.lexable[..index - 2];
-                    self.lexable = &self.lexable[index + 1..];
-                    match integer_string.parse::<u64>() {
-                        Ok(n) => return Some(Ok(Token::UInteger(n))),
-                        Err(e) => {
-                            return Some(Err(LexerError::E(format!(
-                                "error parsing integer string: {integer_string:?} -> {e:?}"
-                            ))));
-                        }
-                    }
+                    return self.lex_unsigned_integer(index - 2, index + 1);
                 }
                 State::UInteger2 => {
-                    return Some(Err(LexerError::E(format!("expected 4 got {ch}"))));
+                    return Err(LexerError::ExpectedCharGotChar(&['4'], ch));
                 }
                 State::E if ch.is_ascii_alphanumeric() || ch == '_' => State::Lexeme,
                 State::E if ch == '#' => todo!(),
@@ -294,12 +400,12 @@ where
                 State::E => {
                     let lexeme_string = &self.lexable[..index];
                     self.lexable = &self.lexable[index..];
-                    match L::lex(lexeme_string) {
+                    match LL::lex(lexeme_string) {
                         Ok(l) => {
                             self.last_tok_lexeme = true;
-                            return Some(Ok(Token::Lexeme(l)));
+                            return Ok(Token::Lexeme(l));
                         }
-                        Err(e) => return Some(Err(LexerError::Lexeme(e))),
+                        Err(e) => return Err(LexerError::Lexeme(e)),
                     }
                 }
                 State::RawStringPrefix { prefix } if ch == '#' => {
@@ -307,9 +413,7 @@ where
                 }
                 State::RawStringPrefix { prefix } if ch == '"' => State::RawString { prefix },
                 State::RawStringPrefix { prefix: _ } => {
-                    return Some(Err(LexerError::E(format!(
-                        "expected # or \" but got {ch} at byte index {index}"
-                    ))));
+                    return Err(LexerError::ExpectedCharGotChar(&['#', '\"'], ch));
                 }
                 State::RawString { prefix } if ch == '"' => {
                     if prefix == 0 {
@@ -317,7 +421,7 @@ where
                         let delim_bytes = '"'.len_utf8();
                         let raw_string_string = &self.lexable[delim_bytes..token_end - delim_bytes];
                         self.lexable = &self.lexable[token_end..];
-                        return Some(Ok(Token::RawString(raw_string_string)));
+                        return Ok(Token::RawString(raw_string_string));
                     } else {
                         State::RawStringSuffix { prefix, suffix: 0 }
                     }
@@ -333,7 +437,7 @@ where
                         let delim_bytes = '"'.len_utf8() + '#'.len_utf8() * prefix;
                         let raw_string_string = &self.lexable[delim_bytes..token_end - delim_bytes];
                         self.lexable = &self.lexable[token_end..];
-                        return Some(Ok(Token::RawString(raw_string_string)));
+                        return Ok(Token::RawString(raw_string_string));
                     } else {
                         State::RawStringSuffix { prefix, suffix }
                     }
@@ -343,94 +447,32 @@ where
                     if ch != ';' {
                         continue;
                     } else {
-                        let shell_string = &self.lexable[1..index];
-                        self.lexable = &self.lexable[index..];
-                        match SH::lex(shell_string) {
-                            Ok(sh) => {
-                                self.last_tok_lexeme = true;
-                                return Some(Ok(Token::Shell(sh)));
-                            }
-                            Err(e) => return Some(Err(LexerError::Shell(e))),
-                        }
+                        return self.lex_shell(index);
                     }
                 }
             };
         }
         match state {
-            State::Start => None,
-            State::Delimiter => {
-                let delimiter_string = self.lexable;
-                match D::lex_delimiter(delimiter_string) {
-                    Ok((consumed, d)) => {
-                        self.lexable = &self.lexable[consumed..];
-                        return Some(Ok(Token::Delimiter(d)));
-                    }
-                    Err(e) => return Some(Err(LexerError::Delimiter(e))),
-                }
-            }
+            State::Start => unreachable!(),
             State::E | State::Lexeme => {
-                let lexeme_string = self.lexable;
-                self.lexable = "";
-                match L::lex(lexeme_string) {
-                    Ok(l) => {
-                        self.last_tok_lexeme = true;
-                        return Some(Ok(Token::Lexeme(l)));
-                    }
-                    Err(e) => return Some(Err(LexerError::Lexeme(e))),
-                }
+                return self.lex_lexeme(self.lexable.len());
             }
             State::NumberZero => {
-                self.lexable = "";
-                return Some(Ok(Token::SInteger(0)));
+                self.lexable = &self.lexable[..0];
+                return Ok(Token::SInteger(0));
             }
             State::NumberDigits => {
-                let integer_string = self.lexable;
-                self.lexable = "";
-                match integer_string.parse::<i64>() {
-                    Ok(n) => return Some(Ok(Token::SInteger(n))),
-                    Err(e) => {
-                        return Some(Err(LexerError::E(format!(
-                            "error parsing integer string: {integer_string:?} -> {e:?}"
-                        ))));
-                    }
-                }
+                return self.lex_signed_integer(self.lexable.len(), self.lexable.len());
             }
             State::HexDigits => {
-                let hex_string = &self.lexable[2..];
-                self.lexable = "";
-                match u64::from_str_radix(hex_string, 16) {
-                    Ok(n) => return Some(Ok(Token::UInteger(n))),
-                    Err(e) => {
-                        return Some(Err(LexerError::E(format!(
-                            "error parsing hex number string: {hex_string:?} -> {e:?}"
-                        ))));
-                    }
-                }
+                return self.lex_hexadecimal(self.lexable.len());
             }
             State::BinaryDigits => {
-                let binary_string = &self.lexable[2..];
-                self.lexable = "";
-                match u64::from_str_radix(binary_string, 2) {
-                    Ok(n) => return Some(Ok(Token::UInteger(n))),
-                    Err(e) => {
-                        return Some(Err(LexerError::E(format!(
-                            "error parsing binary number string: {binary_string:?} -> {e:?}"
-                        ))));
-                    }
-                }
+                return self.lex_binary(self.lexable.len());
             }
             State::FloatDot => unreachable!(),
             State::FloatDigits => {
-                let float_string = self.lexable;
-                self.lexable = "";
-                match float_string.parse::<f64>() {
-                    Ok(n) => return Some(Ok(Token::Float(n))),
-                    Err(e) => {
-                        return Some(Err(LexerError::E(format!(
-                            "error parsing float string: {float_string:?} -> {e:?}"
-                        ))));
-                    }
-                }
+                return self.lex_float(self.lexable.len(), self.lexable.len());
             }
             State::SInteger1
             | State::SInteger2
@@ -441,68 +483,35 @@ where
             | State::RawStringSuffix {
                 prefix: _,
                 suffix: _,
-            } => Some(Err(LexerError::Incomplete)),
+            } => Err(LexerError::Incomplete),
             State::Shell => {
-                let shell_string = &self.lexable[1..];
-                self.lexable = "";
-                match SH::lex(shell_string) {
-                    Ok(sh) => {
-                        self.last_tok_lexeme = true;
-                        return Some(Ok(Token::Shell(sh)));
-                    }
-                    Err(e) => return Some(Err(LexerError::Shell(e))),
-                }
+                return self.lex_shell(self.lexable.len());
             }
         }
     }
 }
-impl<'a, ES, L, D, SH> Iterator for Lexer<'a, ES, L, D, SH>
+
+impl<'a, ESL, LL, DL, SHL> Iterator for Lexer<'a, ESL, LL, DL, SHL>
 where
-    ES: Lex<'a>,
-    L: Lex<'a>,
-    D: DelimiterLex<'a>,
-    SH: Lex<'a>,
+    ESL: ParsingLexer,
+    LL: ParsingLexer,
+    DL: ConsumingLexer,
+    SHL: ParsingLexer,
 {
-    type Item = Result<Token<'a, ES, L, D, SH>, LexerError<'a, ES, L, D, SH>>;
+    type Item = Result<
+        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
+        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+    >;
     fn next(&mut self) -> Option<Self::Item> {
         self.lex()
     }
 }
 
-impl<'a, ES, L, D, SH> std::iter::FusedIterator for Lexer<'a, ES, L, D, SH>
+impl<'a, ESL, LL, DL, SHL> std::iter::FusedIterator for Lexer<'a, ESL, LL, DL, SHL>
 where
-    ES: Lex<'a>,
-    L: Lex<'a>,
-    D: DelimiterLex<'a>,
-    SH: Lex<'a>,
+    ESL: ParsingLexer,
+    LL: ParsingLexer,
+    DL: ConsumingLexer,
+    SHL: ParsingLexer,
 {
-}
-
-pub trait DelimiterLex<'a>: Sized {
-    type Err;
-    /// Given an accumulated punctuation string, returns a tuple of
-    /// `(consumed_slice, delimiter_token)`. The `consumed_slice` tells
-    /// the lexer how many bytes to advance, leaving any remainder in `lexable`.
-    fn lex_delimiter(lexable: &'a str) -> Result<(usize, Self), Self::Err>;
-}
-
-impl<'a> DelimiterLex<'a> for &'a str {
-    type Err = std::convert::Infallible;
-    fn lex_delimiter(lexable: &'a str) -> Result<(usize, Self), Self::Err> {
-        const MULTI_DELIMS: &[&str] = &["..", "::", "==", "!=", "<=", ">=", "=>", "->"];
-
-        for &delim in MULTI_DELIMS {
-            if lexable.starts_with(delim) {
-                return Ok((delim.len(), delim));
-            }
-        }
-
-        if let Some(ch) = lexable.chars().next() {
-            let len = ch.len_utf8();
-            let sub = &lexable[..len];
-            return Ok((sub.len(), sub));
-        }
-
-        Ok((0, ""))
-    }
 }

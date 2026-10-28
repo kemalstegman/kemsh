@@ -1,9 +1,16 @@
+use std::convert::Infallible;
+
 use kemsh::lexer::*;
 
 fn lex_vec(
     lexable: &str,
-) -> Vec<Result<Token<'_, &str, &str, &str, &str>, LexerError<'_, &str, &str, &str, &str>>> {
-    Lexer::<&str, &str, &str, &str>::new(lexable)
+) -> Vec<
+    Result<
+        Token<'_, &str, &str, &str, &str>,
+        LexerError<Infallible, Infallible, Infallible, Infallible>,
+    >,
+> {
+    Lexer::<EscapedStringLexer, LexemeLexer, DelimiterLexer, ShellLexer>::new(lexable)
         .into_iter()
         .collect()
 }
@@ -106,7 +113,7 @@ fn floats_00() {
 }
 
 #[test]
-fn float_00() {
+fn floats_01() {
     assert_eq!(
         lex_vec("123."),
         vec![Ok(Token::SInteger(123)), Ok(Token::Delimiter(".")),]
