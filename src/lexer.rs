@@ -100,7 +100,7 @@ impl NumberLexer for StandardNumberLexer {
                 }
                 ch @ ('i' | 'u') if lexable[index + 1..].starts_with("64") => {
                     let number_string = &lexable[..index];
-                    *lexable = &lexable[index..];
+                    *lexable = &lexable[index + 3..];
                     match ch {
                         'i' => return Ok(Number::Signed(number_string)),
                         'u' => return Ok(Number::Unsigned(number_string)),
@@ -184,7 +184,13 @@ impl RawStringLexer for StandardRawStringLexer {
             .try_fold(
                 (0, false),
                 |(mut suffix_seen, seen_quote), (index, ch)| match ch {
-                    '"' => Continue((0, true)),
+                    '"' => {
+                        if suffix_seen == prefix {
+                            Break(index + '"'.len_utf8())
+                        } else {
+                            Continue((0, true))
+                        }
+                    }
                     '#' if seen_quote => {
                         suffix_seen += 1;
                         if suffix_seen == prefix {
@@ -197,7 +203,7 @@ impl RawStringLexer for StandardRawStringLexer {
                 },
             ) {
             Continue(_) => return Err(LexerError::Incomplete),
-            Break(index) => index,
+            Break(index) => index + prefix * ('#'.len_utf8()) + ('"'.len_utf8()),
         };
         // prefix == suffix
         let raw_string = &lexable
@@ -223,8 +229,13 @@ impl ShellLexer for StandardShellLexer {
             .char_indices()
             .find(|&(_, ch)| ch == ';')
         {
-            None => Err(LexerError::Incomplete),
+            None => {
+                let shell = &lexable[':'.len_utf8()..lexable.len()];
+                *lexable = &lexable[..0];
+                Ok(shell)
+            }
             Some((index, _)) => {
+                let index = index + ';'.len_utf8();
                 let shell = &lexable[':'.len_utf8()..index];
                 *lexable = &lexable[index..];
                 Ok(shell)
