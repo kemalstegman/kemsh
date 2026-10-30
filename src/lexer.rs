@@ -1,55 +1,140 @@
-use std::convert::Infallible;
+use std::{
+    convert::Infallible,
+    iter::FusedIterator,
+    marker::PhantomData,
+    ops::ControlFlow::{Break, Continue},
+};
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum Token<'a, EscapedString, Lexeme, Delimiter, Shell> {
-    RawString(&'a str),
-    EscapedString(EscapedString),
-    SInteger(i64),
-    UInteger(u64),
-    Float(f64),
-    Lexeme(Lexeme),
-    Delimiter(Delimiter),
-    Shell(Shell),
-}
-
-pub trait ConsumingLexer {
-    type Lexed<'a>;
+pub trait LexemeLexer {
+    type Lexeme<'a>;
     type Error;
-    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Lexed<'a>, Self::Error>;
+    fn lex<'a>(
+        lexable: &mut &'a str,
+        known: usize,
+    ) -> Result<Self::Lexeme<'a>, LexerError<Self::Error>>;
 }
 
-pub trait ParsingLexer {
-    type Lexed<'a>;
-    type Error;
-    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error>;
-}
+pub struct StandardLexemeLexer;
 
-pub struct EscapedStringLexer;
-
-impl ParsingLexer for EscapedStringLexer {
-    type Lexed<'a> = &'a str;
+impl LexemeLexer for StandardLexemeLexer {
     type Error = Infallible;
-    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
-        Ok(lexable)
+    type Lexeme<'a> = &'a str;
+    fn lex<'a>(
+        lexable: &mut &'a str,
+        known: usize,
+    ) -> Result<Self::Lexeme<'a>, LexerError<Self::Error>> {
+        let index = lexable[known..]
+            .char_indices()
+            .take_while(|&(_, ch)| ch == '_' || ch.is_ascii_alphanumeric())
+            .last()
+            .map(|(index, ch)| index + ch.len_utf8())
+            .unwrap_or(0);
+        let lexeme = &lexable[..known + index];
+        *lexable = &lexable[known + index..];
+        Ok(lexeme)
     }
 }
 
-pub struct LexemeLexer;
+pub trait NumberLexer {
+    type Number<'a>;
+    type Error;
+    fn lex<'a>(
+        lexable: &mut &'a str,
+        zero_first: bool,
+    ) -> Result<Self::Number<'a>, LexerError<Self::Error>>;
+}
 
-impl ParsingLexer for LexemeLexer {
-    type Lexed<'a> = &'a str;
-    type Error = Infallible;
-    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
-        Ok(lexable)
+pub struct StandardNumberLexer;
+
+impl NumberLexer for StandardNumberLexer {
+    type Number<'a> = Number<'a>;
+    type Error = ();
+    fn lex<'a>(
+        lexable: &mut &'a str,
+        zero_first: bool,
+    ) -> Result<Self::Number<'a>, LexerError<Self::Error>> {
+        if zero_first {
+            match lexable['0'.len_utf8()..].chars().next() {
+                None => {
+                    *lexable = &lexable[1..];
+                    return Ok(Number::Integer("0"));
+                }
+                Some('x') | Some('X') => {
+                    let index = 2 + lexable[2..]
+                        .char_indices()
+                        .take_while(|(_, ch)| ch.is_ascii_hexdigit())
+                        .last()
+                        .map(|(index, ch)| index + ch.len_utf8())
+                        .unwrap_or(0);
+                    let hex_string = &lexable[2..index];
+                    *lexable = &lexable[index..];
+                    return Ok(Number::Hex(hex_string));
+                }
+                Some('b') | Some('B') => {
+                    let index = 2 + lexable[2..]
+                        .char_indices()
+                        .take_while(|&(_, ch)| ch == '0' || ch == '1')
+                        .last()
+                        .map(|(index, ch)| index + ch.len_utf8())
+                        .unwrap_or(0);
+                    let binary_string = &lexable[2..index];
+                    *lexable = &lexable[index..];
+                    return Ok(Number::Binary(binary_string));
+                }
+                Some(_) => (),
+            }
+        }
+        let mut is_float = false;
+        let mut number_string_index = lexable.len();
+        for (index, ch) in lexable.char_indices() {
+            match ch {
+                ch if ch.is_ascii_digit() => continue,
+                '.' if !is_float
+                    && lexable[index + ('.'.len_utf8())..]
+                        .chars()
+                        .next()
+                        .map(|ch| ch.is_ascii_digit())
+                        .unwrap_or(false) =>
+                {
+                    is_float = true
+                }
+                ch @ ('i' | 'u') if lexable[index + 1..].starts_with("64") => {
+                    let number_string = &lexable[..index];
+                    *lexable = &lexable[index..];
+                    match ch {
+                        'i' => return Ok(Number::Signed(number_string)),
+                        'u' => return Ok(Number::Unsigned(number_string)),
+                        _ => unreachable!(),
+                    }
+                }
+                _ => {
+                    number_string_index = index;
+                    break;
+                }
+            }
+        }
+        let number_string = &lexable[..number_string_index];
+        *lexable = &lexable[number_string_index..];
+        if is_float {
+            Ok(Number::Float(number_string))
+        } else {
+            Ok(Number::Integer(number_string))
+        }
     }
 }
 
-pub struct DelimiterLexer;
+pub trait DelimiterLexer {
+    type Delimiter<'a>;
+    type Error;
+    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Delimiter<'a>, LexerError<Self::Error>>;
+}
 
-impl ConsumingLexer for DelimiterLexer {
-    type Lexed<'a> = &'a str;
+pub struct StandardDelimiterLexer;
+
+impl DelimiterLexer for StandardDelimiterLexer {
+    type Delimiter<'a> = &'a str;
     type Error = Infallible;
-    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
+    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Delimiter<'a>, LexerError<Self::Error>> {
         const MULTI_DELIMS: &[&str] = &["..", "::", "==", "!=", "<=", ">=", "=>", "->"];
         for &delim in MULTI_DELIMS {
             if lexable.starts_with(delim) {
@@ -61,457 +146,319 @@ impl ConsumingLexer for DelimiterLexer {
         let len = ch.len_utf8();
         let delim = &lexable[..len];
         *lexable = &lexable[len..];
-
         Ok(delim)
     }
 }
 
-pub struct ShellLexer;
+pub trait RawStringLexer {
+    type RawString<'a>;
+    type Error;
+    fn lex<'a>(
+        lexable: &mut &'a str,
+        prefix: usize,
+        seen_quote: bool,
+    ) -> Result<Self::RawString<'a>, LexerError<Self::Error>>;
+}
 
-impl ParsingLexer for ShellLexer {
-    type Lexed<'a> = &'a str;
-    type Error = Infallible;
-    fn lex<'a>(lexable: &'a str) -> Result<Self::Lexed<'a>, Self::Error> {
-        Ok(lexable)
+pub struct StandardRawStringLexer;
+
+impl RawStringLexer for StandardRawStringLexer {
+    type RawString<'a> = &'a str;
+    type Error = char;
+    fn lex<'a>(
+        lexable: &mut &'a str,
+        mut prefix: usize,
+        seen_quote: bool,
+    ) -> Result<Self::RawString<'a>, LexerError<Self::Error>> {
+        if !seen_quote {
+            for ch in lexable[prefix * ('#'.len_utf8())..].chars() {
+                match ch {
+                    '#' => prefix += 1,
+                    '"' => break,
+                    ch => return Err(LexerError::Fatal(ch)),
+                }
+            }
+        }
+        let index = match lexable[prefix * ('#'.len_utf8()) + ('"'.len_utf8())..]
+            .char_indices()
+            .try_fold(
+                (0, false),
+                |(mut suffix_seen, seen_quote), (index, ch)| match ch {
+                    '"' => Continue((0, true)),
+                    '#' if seen_quote => {
+                        suffix_seen += 1;
+                        if suffix_seen == prefix {
+                            Break(index + '#'.len_utf8())
+                        } else {
+                            Continue((suffix_seen, true))
+                        }
+                    }
+                    _ => Continue((0, false)),
+                },
+            ) {
+            Continue(_) => return Err(LexerError::Incomplete),
+            Break(index) => index,
+        };
+        // prefix == suffix
+        let raw_string = &lexable
+            [prefix + ('"'.len_utf8())..index - prefix * ('#'.len_utf8()) - ('"'.len_utf8())];
+        *lexable = &lexable[index..];
+        Ok(raw_string)
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum LexerError<ESE, LE, DE, SHE> {
-    Incomplete,
-    UnexpectedFirstChar(char),
-    ExpectedCharGotChar(&'static [char], char),
-    Lexeme(LE),
-    Delimiter(DE),
-    EscapedString(ESE),
-    Shell(SHE),
-    SInteger(String),
-    UInteger(String),
-    Float(String),
-    Binary(String),
-    Hexadecimal(String),
+pub trait ShellLexer {
+    type Shell<'a>;
+    type Error;
+    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Shell<'a>, LexerError<Self::Error>>;
 }
 
-pub struct Lexer<'a, ES, L, D, SH> {
-    lexable: &'a str,
-    last_tok_lexeme: bool,
-    _marker: std::marker::PhantomData<(ES, L, D, SH)>,
+pub struct StandardShellLexer;
+
+impl ShellLexer for StandardShellLexer {
+    type Shell<'a> = &'a str;
+    type Error = Infallible;
+    fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Shell<'a>, LexerError<Self::Error>> {
+        match lexable[':'.len_utf8()..]
+            .char_indices()
+            .find(|&(_, ch)| ch == ';')
+        {
+            None => Err(LexerError::Incomplete),
+            Some((index, _)) => {
+                let shell = &lexable[':'.len_utf8()..index];
+                *lexable = &lexable[index..];
+                Ok(shell)
+            }
+        }
+    }
 }
-impl<'a, ESL, LL, DL, SHL> Lexer<'a, ESL, LL, DL, SHL>
+
+pub trait EscapedStringLexer {
+    type EscapedString<'a>;
+    type Error;
+    fn lex<'a>(_lexable: &mut &'a str) -> Result<Self::EscapedString<'a>, LexerError<Self::Error>> {
+        todo!()
+    }
+}
+
+pub struct StandardEscapedStringLexer;
+
+impl EscapedStringLexer for StandardEscapedStringLexer {
+    type EscapedString<'a> = ();
+    type Error = ();
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum Number<'a> {
+    Integer(&'a str),
+    Signed(&'a str),
+    Unsigned(&'a str),
+    Binary(&'a str),
+    Hex(&'a str),
+    Float(&'a str),
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum Token<L, N, D, RS, ES, SH> {
+    Lexeme(L),
+    Number(N),
+    Delimiter(D),
+    RawString(RS),
+    EscapedString(ES),
+    Shell(SH),
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum LexerError<F> {
+    Incomplete,
+    Fatal(F),
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum FatalLexerError<L, N, D, RS, ES, SH> {
+    Incomplete,
+    FirstCharUnexpected(char),
+    Lexeme(L),
+    Number(N),
+    Delimiter(D),
+    RawString(RS),
+    EscapedString(ES),
+    Shell(SH),
+}
+
+pub struct Lexer<'a, L, N, D, RS, ES, SH>
 where
-    ESL: ParsingLexer,
-    LL: ParsingLexer,
-    DL: ConsumingLexer,
-    SHL: ParsingLexer,
+    L: LexemeLexer,
+    N: NumberLexer,
+    D: DelimiterLexer,
+    RS: RawStringLexer,
+    ES: EscapedStringLexer,
+    SH: ShellLexer,
+{
+    lexable: &'a str,
+    is_last_tok_lexeme: bool,
+    _marker: PhantomData<(L, N, D, RS, ES, SH)>,
+}
+
+impl<'a, L, N, D, RS, ES, SH> Lexer<'a, L, N, D, RS, ES, SH>
+where
+    L: LexemeLexer,
+    N: NumberLexer,
+    D: DelimiterLexer,
+    RS: RawStringLexer,
+    ES: EscapedStringLexer,
+    SH: ShellLexer,
 {
     pub fn new(lexable: &'a str) -> Self {
         Self {
             lexable,
-            last_tok_lexeme: false,
-            _marker: std::marker::PhantomData,
+            is_last_tok_lexeme: false,
+            _marker: PhantomData,
         }
     }
     pub fn lex(
         &mut self,
     ) -> Option<
         Result<
-            Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-            LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+            Token<
+                L::Lexeme<'a>,
+                N::Number<'a>,
+                D::Delimiter<'a>,
+                RS::RawString<'a>,
+                ES::EscapedString<'a>,
+                SH::Shell<'a>,
+            >,
+            LexerError<
+                FatalLexerError<L::Error, N::Error, D::Error, RS::Error, ES::Error, SH::Error>,
+            >,
         >,
     > {
+        self.lexable = self.lexable.trim_ascii_start();
         if self.lexable.is_empty() {
             return None;
         }
-        let res = self.lex_();
-        if res.is_err() {
+        let ret = self.lex_nonempty();
+        if ret.is_err() {
             self.lexable = &self.lexable[..0];
         }
-        Some(res)
+        Some(ret)
     }
-    fn lex_signed_integer(
-        &mut self,
-        integer_bytes: usize,
-        consume_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let integer_string = &self.lexable[..integer_bytes];
-        match integer_string.parse::<i64>() {
-            Ok(n) => {
-                self.lexable = &self.lexable[consume_bytes..];
-                Ok(Token::SInteger(n))
-            }
-            Err(e) => Err(LexerError::SInteger(format!("{e}: {integer_string}"))),
-        }
-    }
-    fn lex_unsigned_integer(
-        &mut self,
-        integer_bytes: usize,
-        consume_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let integer_string = &self.lexable[..integer_bytes];
-        match integer_string.parse::<u64>() {
-            Ok(n) => {
-                self.lexable = &self.lexable[consume_bytes..];
-                Ok(Token::UInteger(n))
-            }
-            Err(e) => Err(LexerError::UInteger(format!("{e}: {integer_string}"))),
-        }
-    }
-    fn lex_float(
-        &mut self,
-        float_bytes: usize,
-        consume_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let float_string = &self.lexable[..float_bytes];
-        match float_string.parse::<f64>() {
-            Ok(n) => {
-                self.lexable = &self.lexable[consume_bytes..];
-                Ok(Token::Float(n))
-            }
-            Err(e) => Err(LexerError::Float(format!("{e}: {float_string}"))),
-        }
-    }
-    fn lex_binary(
-        &mut self,
-        binary_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let binary_string = &self.lexable[2..binary_bytes];
-        match u64::from_str_radix(binary_string, 2) {
-            Ok(n) => {
-                self.lexable = &self.lexable[binary_bytes..];
-                Ok(Token::UInteger(n))
-            }
-            Err(e) => Err(LexerError::Binary(format!("{e}: {binary_string}"))),
-        }
-    }
-    fn lex_hexadecimal(
-        &mut self,
-        hexadecimal_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let hexadecimal_string = &self.lexable[2..hexadecimal_bytes];
-        match u64::from_str_radix(hexadecimal_string, 16) {
-            Ok(n) => {
-                self.lexable = &self.lexable[hexadecimal_bytes..];
-                Ok(Token::UInteger(n))
-            }
-            Err(e) => Err(LexerError::Hexadecimal(format!(
-                "{e}: {hexadecimal_string}"
-            ))),
-        }
-    }
-    fn lex_lexeme(
-        &mut self,
-        lexeme_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let lexeme_string = &self.lexable[..lexeme_bytes];
-        match LL::lex(lexeme_string) {
-            Ok(l) => {
-                self.lexable = &self.lexable[lexeme_bytes..];
-                self.last_tok_lexeme = true;
-                return Ok(Token::Lexeme(l));
-            }
-            Err(e) => return Err(LexerError::Lexeme(e)),
-        }
-    }
-    fn _lex_escaped_string(
-        &mut self,
-        _escaped_string_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        todo!()
-    }
-    fn lex_shell(
-        &mut self,
-        shell_bytes: usize,
-    ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
-    > {
-        let shell_string = &self.lexable[1..shell_bytes];
-        self.lexable = &self.lexable[shell_bytes..];
-        match SHL::lex(shell_string) {
-            Ok(sh) => {
-                self.last_tok_lexeme = true;
-                return Ok(Token::Shell(sh));
-            }
-            Err(e) => return Err(LexerError::Shell(e)),
-        }
-    }
-    fn lex_(
+    fn lex_nonempty(
         &mut self,
     ) -> Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+        Token<
+            L::Lexeme<'a>,
+            N::Number<'a>,
+            D::Delimiter<'a>,
+            RS::RawString<'a>,
+            ES::EscapedString<'a>,
+            SH::Shell<'a>,
+        >,
+        LexerError<FatalLexerError<L::Error, N::Error, D::Error, RS::Error, ES::Error, SH::Error>>,
     > {
-        self.lexable = self.lexable.trim_ascii();
-        enum State {
-            Start,
-            Lexeme,
-            NumberZero,
-            NumberDigits,
-            HexDigits,
-            BinaryDigits,
-            FloatDot,
-            FloatDigits,
-            SInteger1,
-            SInteger2,
-            UInteger1,
-            UInteger2,
-            RawStringPrefix { prefix: usize },
-            RawString { prefix: usize },
-            RawStringSuffix { prefix: usize, suffix: usize },
-            E,
-            Shell,
-        }
-        let mut state = State::Start;
-        let last_tok_lexeme = self.last_tok_lexeme;
-        self.last_tok_lexeme = false;
-        for (index, ch) in self.lexable.char_indices() {
-            state = match state {
-                State::Start if ch == 'e' => State::E,
-                State::Start if ch.is_ascii_alphabetic() || ch == '_' => State::Lexeme,
-                State::Start if ch == '0' => State::NumberZero,
-                State::Start if ch.is_ascii_digit() => State::NumberDigits,
-                State::Start if ch == ':' && !last_tok_lexeme => State::Shell,
-                State::Start if ch == '#' => State::RawStringPrefix { prefix: 1 },
-                State::Start if ch == '"' => State::RawString { prefix: 0 },
-                State::Start if ch.is_ascii_punctuation() => match DL::lex(&mut self.lexable) {
-                    Err(e) => return Err(LexerError::Delimiter(e)),
-                    Ok(l) => return Ok(Token::Delimiter(l)),
-                },
-                State::Start => {
-                    return Err(LexerError::UnexpectedFirstChar(ch));
-                }
-                State::Lexeme => {
-                    if ch.is_ascii_alphanumeric() || ch == '_' {
-                        continue;
-                    } else {
-                        return self.lex_lexeme(index);
-                    }
-                }
-                State::NumberZero => match ch {
-                    'x' | 'X' => State::HexDigits,
-                    'b' | 'B' => State::BinaryDigits,
-                    '.' => {
-                        if !self.lexable[index + 1..].is_empty()
-                            && self.lexable[index + 1..]
-                                .chars()
-                                .next()
-                                .unwrap()
-                                .is_ascii_digit()
-                        {
-                            State::FloatDot
-                        } else {
-                            self.lexable = &self.lexable[index..];
-                            return Ok(Token::SInteger(0));
-                        }
-                    }
-                    ch if ch.is_ascii_digit() => State::NumberDigits,
-                    'i' => State::SInteger1,
-                    'u' => State::UInteger1,
-                    _ => {
-                        self.lexable = &self.lexable[index..];
-                        return Ok(Token::SInteger(0));
+        let mut char_iter = self.lexable.chars();
+        let is_last_tok_lexeme = self.is_last_tok_lexeme;
+        self.is_last_tok_lexeme = false;
+        match char_iter.next().unwrap() {
+            'e' => match char_iter.next() {
+                Some('#') => match ES::lex(&mut self.lexable) {
+                    Ok(es) => Ok(Token::EscapedString(es)),
+                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                    Err(LexerError::Fatal(e)) => {
+                        Err(LexerError::Fatal(FatalLexerError::EscapedString(e)))
                     }
                 },
-                State::NumberDigits => match ch {
-                    ch if ch.is_ascii_digit() => continue,
-                    '.' => {
-                        if !self.lexable[index + 1..].is_empty()
-                            && self.lexable[index + 1..]
-                                .chars()
-                                .next()
-                                .unwrap()
-                                .is_ascii_digit()
-                        {
-                            State::FloatDot
-                        } else {
-                            return self.lex_signed_integer(index, index);
-                        }
+                Some('"') => match ES::lex(&mut self.lexable) {
+                    Ok(es) => Ok(Token::EscapedString(es)),
+                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                    Err(LexerError::Fatal(e)) => {
+                        Err(LexerError::Fatal(FatalLexerError::EscapedString(e)))
                     }
-                    'i' => State::SInteger1,
-                    'u' => State::UInteger1,
-                    _ => return self.lex_signed_integer(index, index),
                 },
-                State::HexDigits => {
-                    if ch.is_ascii_hexdigit() {
-                        continue;
-                    } else {
-                        return self.lex_hexadecimal(index);
+                None | Some(_) => match L::lex(&mut self.lexable, 'e'.len_utf8()) {
+                    Ok(l) => {
+                        self.is_last_tok_lexeme = true;
+                        Ok(Token::Lexeme(l))
                     }
+                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                    Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Lexeme(e))),
+                },
+            },
+            ch @ '_' | ch if ch.is_ascii_alphabetic() => match L::lex(&mut self.lexable, 1) {
+                Ok(l) => {
+                    self.is_last_tok_lexeme = true;
+                    Ok(Token::Lexeme(l))
                 }
-                State::BinaryDigits => {
-                    if ch == '0' || ch == '1' {
-                        continue;
-                    } else {
-                        return self.lex_binary(index);
-                    }
-                }
-                State::FloatDot => State::FloatDigits,
-                State::FloatDigits => {
-                    if ch.is_ascii_digit() {
-                        continue;
-                    } else {
-                        return self.lex_float(index, index);
-                    }
-                }
-                State::SInteger1 if ch == '6' => State::SInteger2,
-                State::SInteger1 => {
-                    return Err(LexerError::ExpectedCharGotChar(&['6'], ch));
-                }
-                State::SInteger2 if ch == '4' => {
-                    return self.lex_signed_integer(index - 2, index + 1);
-                }
-                State::SInteger2 => {
-                    return Err(LexerError::ExpectedCharGotChar(&['4'], ch));
-                }
-                State::UInteger1 if ch == '6' => State::UInteger2,
-                State::UInteger1 => {
-                    return Err(LexerError::ExpectedCharGotChar(&['6'], ch));
-                }
-                State::UInteger2 if ch == '4' => {
-                    return self.lex_unsigned_integer(index - 2, index + 1);
-                }
-                State::UInteger2 => {
-                    return Err(LexerError::ExpectedCharGotChar(&['4'], ch));
-                }
-                State::E if ch.is_ascii_alphanumeric() || ch == '_' => State::Lexeme,
-                State::E if ch == '#' => todo!(),
-                State::E if ch == '"' => todo!(),
-                State::E => {
-                    let lexeme_string = &self.lexable[..index];
-                    self.lexable = &self.lexable[index..];
-                    match LL::lex(lexeme_string) {
-                        Ok(l) => {
-                            self.last_tok_lexeme = true;
-                            return Ok(Token::Lexeme(l));
-                        }
-                        Err(e) => return Err(LexerError::Lexeme(e)),
-                    }
-                }
-                State::RawStringPrefix { prefix } if ch == '#' => {
-                    State::RawStringPrefix { prefix: prefix + 1 }
-                }
-                State::RawStringPrefix { prefix } if ch == '"' => State::RawString { prefix },
-                State::RawStringPrefix { prefix: _ } => {
-                    return Err(LexerError::ExpectedCharGotChar(&['#', '\"'], ch));
-                }
-                State::RawString { prefix } if ch == '"' => {
-                    if prefix == 0 {
-                        let token_end = index + '"'.len_utf8();
-                        let delim_bytes = '"'.len_utf8();
-                        let raw_string_string = &self.lexable[delim_bytes..token_end - delim_bytes];
-                        self.lexable = &self.lexable[token_end..];
-                        return Ok(Token::RawString(raw_string_string));
-                    } else {
-                        State::RawStringSuffix { prefix, suffix: 0 }
-                    }
-                }
-                State::RawString { prefix: _ } => continue,
-                State::RawStringSuffix { prefix, suffix: _ } if ch == '"' => {
-                    State::RawStringSuffix { prefix, suffix: 0 }
-                }
-                State::RawStringSuffix { prefix, suffix } if ch == '#' => {
-                    let suffix = suffix + 1;
-                    if prefix == suffix {
-                        let token_end = index + '#'.len_utf8();
-                        let delim_bytes = '"'.len_utf8() + '#'.len_utf8() * prefix;
-                        let raw_string_string = &self.lexable[delim_bytes..token_end - delim_bytes];
-                        self.lexable = &self.lexable[token_end..];
-                        return Ok(Token::RawString(raw_string_string));
-                    } else {
-                        State::RawStringSuffix { prefix, suffix }
-                    }
-                }
-                State::RawStringSuffix { prefix, suffix: _ } => State::RawString { prefix },
-                State::Shell => {
-                    if ch != ';' {
-                        continue;
-                    } else {
-                        return self.lex_shell(index);
-                    }
-                }
-            };
-        }
-        match state {
-            State::Start => unreachable!(),
-            State::E | State::Lexeme => {
-                return self.lex_lexeme(self.lexable.len());
-            }
-            State::NumberZero => {
-                self.lexable = &self.lexable[..0];
-                return Ok(Token::SInteger(0));
-            }
-            State::NumberDigits => {
-                return self.lex_signed_integer(self.lexable.len(), self.lexable.len());
-            }
-            State::HexDigits => {
-                return self.lex_hexadecimal(self.lexable.len());
-            }
-            State::BinaryDigits => {
-                return self.lex_binary(self.lexable.len());
-            }
-            State::FloatDot => unreachable!(),
-            State::FloatDigits => {
-                return self.lex_float(self.lexable.len(), self.lexable.len());
-            }
-            State::SInteger1
-            | State::SInteger2
-            | State::UInteger1
-            | State::UInteger2
-            | State::RawString { prefix: _ }
-            | State::RawStringPrefix { prefix: _ }
-            | State::RawStringSuffix {
-                prefix: _,
-                suffix: _,
-            } => Err(LexerError::Incomplete),
-            State::Shell => {
-                return self.lex_shell(self.lexable.len());
-            }
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Lexeme(e))),
+            },
+            '0' => match N::lex(&mut self.lexable, true) {
+                Ok(n) => Ok(Token::Number(n)),
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Number(e))),
+            },
+            ch if ch.is_ascii_digit() => match N::lex(&mut self.lexable, false) {
+                Ok(n) => Ok(Token::Number(n)),
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Number(e))),
+            },
+            ':' if !is_last_tok_lexeme => match SH::lex(&mut self.lexable) {
+                Ok(sh) => Ok(Token::Shell(sh)),
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Shell(e))),
+            },
+            '#' => match RS::lex(&mut self.lexable, 1, false) {
+                Ok(rs) => Ok(Token::RawString(rs)),
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::RawString(e))),
+            },
+            '"' => match RS::lex(&mut self.lexable, 0, true) {
+                Ok(rs) => Ok(Token::RawString(rs)),
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::RawString(e))),
+            },
+            ch if ch.is_ascii_punctuation() => match D::lex(&mut self.lexable) {
+                Ok(d) => Ok(Token::Delimiter(d)),
+                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
+                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Delimiter(e))),
+            },
+            ch => Err(LexerError::Fatal(FatalLexerError::FirstCharUnexpected(ch))),
         }
     }
 }
 
-impl<'a, ESL, LL, DL, SHL> Iterator for Lexer<'a, ESL, LL, DL, SHL>
+impl<'a, L, N, D, RS, ES, SH> Iterator for Lexer<'a, L, N, D, RS, ES, SH>
 where
-    ESL: ParsingLexer,
-    LL: ParsingLexer,
-    DL: ConsumingLexer,
-    SHL: ParsingLexer,
+    L: LexemeLexer,
+    N: NumberLexer,
+    D: DelimiterLexer,
+    RS: RawStringLexer,
+    ES: EscapedStringLexer,
+    SH: ShellLexer,
 {
     type Item = Result<
-        Token<'a, ESL::Lexed<'a>, LL::Lexed<'a>, DL::Lexed<'a>, SHL::Lexed<'a>>,
-        LexerError<ESL::Error, LL::Error, DL::Error, SHL::Error>,
+        Token<
+            L::Lexeme<'a>,
+            N::Number<'a>,
+            D::Delimiter<'a>,
+            RS::RawString<'a>,
+            ES::EscapedString<'a>,
+            SH::Shell<'a>,
+        >,
+        LexerError<FatalLexerError<L::Error, N::Error, D::Error, RS::Error, ES::Error, SH::Error>>,
     >;
     fn next(&mut self) -> Option<Self::Item> {
         self.lex()
     }
 }
 
-impl<'a, ESL, LL, DL, SHL> std::iter::FusedIterator for Lexer<'a, ESL, LL, DL, SHL>
+impl<'a, L, N, D, RS, ES, SH> FusedIterator for Lexer<'a, L, N, D, RS, ES, SH>
 where
-    ESL: ParsingLexer,
-    LL: ParsingLexer,
-    DL: ConsumingLexer,
-    SHL: ParsingLexer,
+    L: LexemeLexer,
+    N: NumberLexer,
+    D: DelimiterLexer,
+    RS: RawStringLexer,
+    ES: EscapedStringLexer,
+    SH: ShellLexer,
 {
 }
