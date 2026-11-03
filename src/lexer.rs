@@ -18,7 +18,7 @@ pub struct StandardLexemeLexer;
 
 impl LexemeLexer for StandardLexemeLexer {
     type Error = Infallible;
-    type Lexeme<'a> = &'a str;
+    type Lexeme<'a> = Lexeme<'a>;
     fn lex<'a>(
         lexable: &mut &'a str,
         known: usize,
@@ -31,7 +31,7 @@ impl LexemeLexer for StandardLexemeLexer {
             .unwrap_or(0);
         let lexeme = &lexable[..known + index];
         *lexable = &lexable[known + index..];
-        Ok(lexeme)
+        Ok(Lexeme::from(lexeme))
     }
 }
 
@@ -48,7 +48,7 @@ pub struct StandardNumberLexer;
 
 impl NumberLexer for StandardNumberLexer {
     type Number<'a> = Number<'a>;
-    type Error = ();
+    type Error = Infallible;
     fn lex<'a>(
         lexable: &mut &'a str,
         zero_first: bool,
@@ -132,21 +132,42 @@ pub trait DelimiterLexer {
 pub struct StandardDelimiterLexer;
 
 impl DelimiterLexer for StandardDelimiterLexer {
-    type Delimiter<'a> = &'a str;
+    type Delimiter<'a> = Delimiter;
     type Error = Infallible;
     fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Delimiter<'a>, LexerError<Self::Error>> {
-        const MULTI_DELIMS: &[&str] = &["..", "::", "==", "!=", "<=", ">=", "=>", "->"];
-        for &delim in MULTI_DELIMS {
-            if lexable.starts_with(delim) {
-                *lexable = &lexable[delim.len()..];
-                return Ok(delim);
-            }
-        }
-        let ch = lexable.chars().next().unwrap();
-        let len = ch.len_utf8();
-        let delim = &lexable[..len];
-        *lexable = &lexable[len..];
-        Ok(delim)
+        let mut char_iter = lexable.chars();
+        let (bytes, delimiter) = match char_iter.next().unwrap() {
+            '{' => match char_iter.next() {
+                Some('[') => (2, Delimiter::OpenBraceBracket),
+                Some(_) | None => (1, Delimiter::OpenBrace),
+            },
+            '}' => (1, Delimiter::CloseBrace),
+            '[' => (1, Delimiter::OpenSquareBracket),
+            ']' => match char_iter.next() {
+                Some('}') => (2, Delimiter::CloseBracketBrace),
+                Some(_) | None => (1, Delimiter::CloseSquareBracket),
+            },
+            '(' => (1, Delimiter::OpenParenthesis),
+            ')' => (1, Delimiter::CloseParenthesis),
+            '<' => (1, Delimiter::OpenAngleBracket),
+            '>' => (1, Delimiter::CloseAngleBracket),
+            ',' => (1, Delimiter::Comma),
+            '.' => (1, Delimiter::Period),
+            ';' => (1, Delimiter::Semicolon),
+            ':' => (1, Delimiter::Colon),
+            '-' => (1, Delimiter::HyphenMinus),
+            '+' => (1, Delimiter::Plus),
+            '=' => match char_iter.next() {
+                Some('=') => (2, Delimiter::EqualEqual),
+                Some(_) | None => (1, Delimiter::Equal),
+            },
+            '/' => (1, Delimiter::ForwardSlash),
+            '\\' => (1, Delimiter::BackSlash),
+            '*' => (1, Delimiter::Asterisk),
+            _ => todo!(),
+        };
+        *lexable = &lexable[bytes..];
+        Ok(delimiter)
     }
 }
 
@@ -260,6 +281,81 @@ impl EscapedStringLexer for StandardEscapedStringLexer {
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
+pub enum Lexeme<'a> {
+    LexLet,
+    LexUnit,
+    LexI64,
+    LexU64,
+    LexBool,
+    LexTrue,
+    LexFalse,
+    LexString,
+    LexList,
+    LexMap,
+    LexOption,
+    LexSome,
+    LexNone,
+    LexResult,
+    LexOk,
+    LexErr,
+    LexFn,
+    LexLoop,
+    LexWhile,
+    LexFor,
+    LexIf,
+    LexJcmd,
+    LexJhandle,
+    LexJexit,
+    LexProcess,
+    LexRun,
+    LexSpawn,
+    LexWait,
+    LexFhandle,
+    LexDrop,
+    LexCd,
+    Identifier(&'a str),
+}
+
+impl<'a> From<&'a str> for Lexeme<'a> {
+    fn from(lexeme: &'a str) -> Self {
+        match lexeme {
+            "let" => Self::LexLet,
+            "unit" => Self::LexUnit,
+            "i64" => Self::LexI64,
+            "u64" => Self::LexU64,
+            "bool" => Self::LexBool,
+            "true" => Self::LexTrue,
+            "false" => Self::LexFalse,
+            "string" => Self::LexString,
+            "list" => Self::LexList,
+            "map" => Self::LexMap,
+            "option" => Self::LexOption,
+            "some" => Self::LexSome,
+            "none" => Self::LexNone,
+            "result" => Self::LexResult,
+            "ok" => Self::LexOk,
+            "err" => Self::LexErr,
+            "fn" => Self::LexFn,
+            "loop" => Self::LexLoop,
+            "while" => Self::LexWhile,
+            "for" => Self::LexFor,
+            "if" => Self::LexIf,
+            "jcmd" => Self::LexJcmd,
+            "jhandle" => Self::LexJhandle,
+            "jexit" => Self::LexJexit,
+            "process" => Self::LexProcess,
+            "run" => Self::LexRun,
+            "spawn" => Self::LexSpawn,
+            "wait" => Self::LexWait,
+            "fhandle" => Self::LexFhandle,
+            "drop" => Self::LexDrop,
+            "cd" => Self::LexCd,
+            lexeme => Self::Identifier(lexeme),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum Number<'a> {
     Integer(&'a str),
     Signed(&'a str),
@@ -267,6 +363,33 @@ pub enum Number<'a> {
     Binary(&'a str),
     Hex(&'a str),
     Float(&'a str),
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum Delimiter {
+    // single character
+    OpenBrace,          // {
+    CloseBrace,         // }
+    OpenSquareBracket,  // [
+    CloseSquareBracket, // ]
+    OpenParenthesis,    // (
+    CloseParenthesis,   // )
+    OpenAngleBracket,   // <
+    CloseAngleBracket,  // >
+    Comma,              // ,
+    Period,             // .
+    Semicolon,          // ;
+    Colon,              // :
+    HyphenMinus,        // -
+    Plus,               // +
+    Equal,              // =
+    ForwardSlash,       // /
+    BackSlash,          // \
+    Asterisk,           // *
+    // multi-character
+    OpenBraceBracket,  // {[
+    CloseBracketBrace, // ]}
+    EqualEqual,        // ==
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]

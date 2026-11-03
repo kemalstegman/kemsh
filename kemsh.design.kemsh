@@ -83,6 +83,7 @@ let job1: jcmd = process "ls";
 let pjob: jcmd = job1 | process ["grep", #"mydir"#];
 let pjob: jcmd = (process ["grep", #"mydir"#]) < job1;
 let jres: jexit = run pjob;
+let jres: jexit = run "ls";
 let jres: jexit = :ls;
 let backgroundjob: jhandle = spawn (process "ls");
 let jres: jexit = wait backgroundjob;
