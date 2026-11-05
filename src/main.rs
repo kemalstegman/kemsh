@@ -20,6 +20,6 @@ fn main() {
         StandardShellLexer,
     >::new(inp.as_str());
     for exp_res in Parser::new(lexer).into_iter() {
-        println!("{exp_res:?}");
+        println!("{exp_res:#?}");
     }
 }

@@ -1,34 +1,64 @@
 use std::iter::FusedIterator;
 
-use itertools::{PeekNth, peek_nth};
-
-use crate::lexer::{
-    Delimiter,
-    Lexeme::{self, Identifier},
-    Number, Token,
+use crate::{
+    ast::{AST, Literal, Operation},
+    lexer::{
+        Delimiter,
+        Lexeme::{self, Identifier},
+        Number, Token,
+    },
+    npeekable::NPeekable,
 };
 
 type PToken<'a> = Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, (), &'a str>;
 
 enum NullDenotation<'a> {
-    Number(&'a str),
+    I64(i64),
+    U64(u64),
+    F64(f64),
+    BOOL(bool),
+    STRING(&'a str),
+    IDENTIFIER(&'a str),
+    Negate,
 }
 
 impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
     type Error = ();
     fn try_from(token: PToken<'a>) -> Result<Self, Self::Error> {
         match token {
-            Token::Lexeme(Identifier(_iden)) => todo!(),
-            Token::Lexeme(Lexeme::LexTrue) => todo!(),
-            Token::Lexeme(Lexeme::LexFalse) => todo!(),
-            Token::Number(Number::Binary(_num)) => todo!(),
-            Token::Number(Number::Hex(_num)) => todo!(),
-            Token::Number(Number::Unsigned(_num)) => todo!(),
-            Token::Number(Number::Signed(num)) | Token::Number(Number::Integer(num)) => {
-                Ok(NullDenotation::Number(num))
+            Token::Lexeme(Identifier(identifier)) => Ok(NullDenotation::IDENTIFIER(identifier)),
+            Token::Lexeme(Lexeme::LexTrue) => Ok(NullDenotation::BOOL(true)),
+            Token::Lexeme(Lexeme::LexFalse) => Ok(NullDenotation::BOOL(false)),
+            Token::Number(Number::Binary(number_string)) => {
+                match u64::from_str_radix(number_string, 2) {
+                    Ok(number) => Ok(NullDenotation::U64(number)),
+                    Err(_e) => todo!(),
+                }
             }
-            Token::Number(Number::Float(_num)) => todo!(),
-            Token::RawString(_string) => todo!(),
+            Token::Number(Number::Hex(number_string)) => {
+                match u64::from_str_radix(number_string, 16) {
+                    Ok(number) => Ok(NullDenotation::U64(number)),
+                    Err(_e) => todo!(),
+                }
+            }
+            Token::Number(Number::Unsigned(number_string)) => {
+                match u64::from_str_radix(number_string, 10) {
+                    Ok(number) => Ok(NullDenotation::U64(number)),
+                    Err(_e) => todo!(),
+                }
+            }
+            Token::Number(Number::Signed(number_string))
+            | Token::Number(Number::Integer(number_string)) => {
+                match i64::from_str_radix(number_string, 10) {
+                    Ok(number) => Ok(NullDenotation::I64(number)),
+                    Err(_e) => todo!(),
+                }
+            }
+            Token::Number(Number::Float(number_string)) => match number_string.parse::<f64>() {
+                Ok(number) => Ok(NullDenotation::F64(number)),
+                Err(_e) => todo!(),
+            },
+            Token::RawString(string) => Ok(NullDenotation::STRING(string)),
             Token::Lexeme(Lexeme::LexUnit) => todo!(),
             Token::Lexeme(Lexeme::LexOk) => todo!(),
             Token::Lexeme(Lexeme::LexErr) => todo!(),
@@ -64,7 +94,7 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
             Token::Delimiter(Delimiter::OpenBrace) => todo!(),
             Token::Delimiter(Delimiter::OpenSquareBracket) => todo!(),
             Token::Delimiter(Delimiter::OpenParenthesis) => todo!(),
-            Token::Delimiter(Delimiter::HyphenMinus) => todo!(),
+            Token::Delimiter(Delimiter::HyphenMinus) => Ok(NullDenotation::Negate),
             Token::Delimiter(Delimiter::Plus) => todo!(),
             Token::Delimiter(Delimiter::OpenBraceBracket) => todo!(),
             // unexpected delimiters
@@ -91,14 +121,18 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
 
 enum LeftDenotation {
     Add,
+    Subtract,
     Multiply,
+    Divide,
 }
 
 impl LeftDenotation {
     fn left_precedence(&self) -> DenotationPrecedence {
         match self {
             Self::Add => DenotationPrecedence::Add,
+            Self::Subtract => DenotationPrecedence::Add,
             Self::Multiply => DenotationPrecedence::Multiply,
+            Self::Divide => DenotationPrecedence::Multiply,
         }
     }
 }
@@ -109,15 +143,15 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
         match token {
             Token::Delimiter(Delimiter::OpenSquareBracket) => todo!(),
             Token::Delimiter(Delimiter::OpenParenthesis) => todo!(),
-            Token::Delimiter(Delimiter::HyphenMinus) => todo!(),
-            Token::Delimiter(Delimiter::Plus) => Ok(Self::Add),
+            Token::Delimiter(Delimiter::HyphenMinus) => Ok(LeftDenotation::Subtract),
+            Token::Delimiter(Delimiter::Plus) => Ok(LeftDenotation::Add),
             Token::Delimiter(Delimiter::OpenAngleBracket) => todo!(),
             Token::Delimiter(Delimiter::CloseAngleBracket) => todo!(),
             Token::Delimiter(Delimiter::Comma) => todo!(),
             Token::Delimiter(Delimiter::Period) => todo!(),
             Token::Delimiter(Delimiter::EqualEqual) => todo!(),
-            Token::Delimiter(Delimiter::ForwardSlash) => todo!(),
-            Token::Delimiter(Delimiter::Asterisk) => Ok(Self::Multiply),
+            Token::Delimiter(Delimiter::ForwardSlash) => Ok(LeftDenotation::Divide),
+            Token::Delimiter(Delimiter::Asterisk) => Ok(LeftDenotation::Multiply),
             // not left denotation
             Token::Lexeme(Identifier(_))
             | Token::Lexeme(Lexeme::LexTrue)
@@ -182,17 +216,22 @@ enum DenotationPrecedence {
 }
 
 #[derive(Debug)]
-pub enum TooBasicExpression<'a> {
-    Number(&'a str),
-    Add(Box<(TooBasicExpression<'a>, TooBasicExpression<'a>)>),
-    Multiply(Box<(TooBasicExpression<'a>, TooBasicExpression<'a>)>),
+pub enum ParserError<L, F> {
+    Incomplete,
+    Lexer(L),
+    Fatal(F),
+}
+
+#[derive(Debug)]
+pub enum FatalParserError<N> {
+    NUD(N),
 }
 
 pub struct Parser<'a, I, E>
 where
     I: Iterator<Item = Result<PToken<'a>, E>>,
 {
-    iter: PeekNth<I>,
+    iter: NPeekable<I, 2>,
 }
 
 impl<'a, I, E> Parser<'a, I, E>
@@ -201,39 +240,89 @@ where
 {
     pub fn new(iter: I) -> Self {
         Self {
-            iter: peek_nth(iter),
+            iter: NPeekable::new(iter),
         }
     }
-    pub fn parse(&mut self) -> Option<Result<TooBasicExpression<'a>, E>> {
+    pub fn parse(&mut self) -> Option<Result<AST<'a>, ParserError<E, FatalParserError<()>>>> {
         match self.iter.next()? {
-            Err(e) => Some(Err(e)),
+            Err(e) => Some(Err(ParserError::Lexer(e))),
             Ok(tok) => Some(self.parse_expression(tok, DenotationPrecedence::None)),
         }
     }
-    fn parse_nud(&mut self, nud: NullDenotation<'a>) -> Result<TooBasicExpression<'a>, E> {
+    fn parse_nud(
+        &mut self,
+        nud: NullDenotation<'a>,
+    ) -> Result<AST<'a>, ParserError<E, FatalParserError<()>>> {
         match nud {
-            NullDenotation::Number(num) => Ok(TooBasicExpression::Number(num)),
+            NullDenotation::BOOL(boolean) => Ok(AST::Literal(Literal::BOOL(boolean))),
+            NullDenotation::I64(number) => Ok(AST::Literal(Literal::I64(number))),
+            NullDenotation::U64(number) => Ok(AST::Literal(Literal::U64(number))),
+            NullDenotation::F64(number) => Ok(AST::Literal(Literal::F64(number))),
+            NullDenotation::STRING(string) => Ok(AST::Literal(Literal::STRING(string))),
+            NullDenotation::IDENTIFIER(identifier) => Ok(AST::Identifier(identifier)),
+            NullDenotation::Negate => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                match tok {
+                    Token::Number(Number::Signed(number_string))
+                    | Token::Number(Number::Integer(number_string)) => {
+                        match i64::from_str_radix(&format!("-{number_string}"), 10) {
+                            Ok(number) => Ok(AST::Literal(Literal::I64(number))),
+                            Err(_e) => todo!(),
+                        }
+                    }
+                    tok => {
+                        let right = self.parse_expression(tok, DenotationPrecedence::Add)?;
+                        Ok(AST::Operation(Operation::Negate(Box::new(right))))
+                    }
+                }
+            }
         }
     }
     fn parse_led(
         &mut self,
-        left: TooBasicExpression<'a>,
+        left: AST<'a>,
         led: LeftDenotation,
-    ) -> Result<TooBasicExpression<'a>, E> {
+    ) -> Result<AST<'a>, ParserError<E, FatalParserError<()>>> {
         match led {
             LeftDenotation::Add => {
-                let tok = self.iter.next().unwrap().ok().unwrap();
-                Ok(TooBasicExpression::Add(Box::new((
-                    left,
-                    self.parse_expression(tok, DenotationPrecedence::Add)?,
-                ))))
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Add)?;
+                Ok(AST::Operation(Operation::Add(Box::new((left, right)))))
+            }
+            LeftDenotation::Subtract => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Add)?;
+                Ok(AST::Operation(Operation::Subtract(Box::new((left, right)))))
             }
             LeftDenotation::Multiply => {
-                let tok = self.iter.next().unwrap().ok().unwrap();
-                Ok(TooBasicExpression::Multiply(Box::new((
-                    left,
-                    self.parse_expression(tok, DenotationPrecedence::Multiply)?,
-                ))))
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Multiply)?;
+                Ok(AST::Operation(Operation::Multiply(Box::new((left, right)))))
+            }
+            LeftDenotation::Divide => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Multiply)?;
+                Ok(AST::Operation(Operation::Divide(Box::new((left, right)))))
             }
         }
     }
@@ -241,16 +330,19 @@ where
         &mut self,
         tok: PToken<'a>,
         precedence: DenotationPrecedence,
-    ) -> Result<TooBasicExpression<'a>, E> {
+    ) -> Result<AST<'a>, ParserError<E, FatalParserError<()>>> {
         let mut left = match NullDenotation::try_from(tok) {
-            Err(()) => todo!(),
+            Err(e) => return Err(ParserError::Fatal(FatalParserError::NUD(e))),
             Ok(nud) => self.parse_nud(nud)?,
         };
         loop {
-            let led = match self.iter.peek() {
-                None => break,
-                Some(Err(_)) => return Err(self.iter.next().unwrap().err().unwrap()),
-                Some(Ok(tok)) => match LeftDenotation::try_from(tok) {
+            let led = match self.iter.peek(0) {
+                None => unreachable!(),
+                Some(None) => break,
+                Some(Some(Err(_))) => {
+                    return Err(ParserError::Lexer(self.iter.next().unwrap().err().unwrap()));
+                }
+                Some(Some(Ok(tok))) => match LeftDenotation::try_from(tok) {
                     Err(()) => break,
                     Ok(led) => led,
                 },
@@ -269,7 +361,7 @@ impl<'a, I, E> Iterator for Parser<'a, I, E>
 where
     I: Iterator<Item = Result<PToken<'a>, E>>,
 {
-    type Item = Result<TooBasicExpression<'a>, E>;
+    type Item = Result<AST<'a>, ParserError<E, FatalParserError<()>>>;
     fn next(&mut self) -> Option<Self::Item> {
         self.parse()
     }
