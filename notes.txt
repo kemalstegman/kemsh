@@ -1,0 +1,1 @@
+types are opaque. likely capable of adding variant typing but I'm lazy. it's only relevant to the option, result, and function types. though types are only used in let, assignment, function return, and the is operator, so it's more that these use cases of types are less powerful than they could be.

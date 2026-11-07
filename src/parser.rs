@@ -1,7 +1,7 @@
 use std::iter::FusedIterator;
 
 use crate::{
-    ast::{AST, Literal, Operation},
+    ast::{AST, Operation, Value, ValueKind},
     lexer::{
         Delimiter,
         Lexeme::{self, Identifier},
@@ -18,66 +18,104 @@ enum NullDenotation<'a> {
     F64(f64),
     BOOL(bool),
     STRING(&'a str),
+    UNIT,
     IDENTIFIER(&'a str),
     Negate,
+    Ok,
+    Err,
+    Some,
+    NONE,
+    ChangeDirectory,
+    Process,
+    Run,
+    Spawn,
+    Wait,
+    Drop,
+    Let,
+    Loop,
+    For,
+    While,
+    If,
+    Fn,
+    ListOpen,
+    MapOpen,
+    ScopeOpen,
+    ParenthesisOpen,
+}
+
+#[derive(Debug)]
+pub enum NullDenotationError<'a> {
+    Unexpected(PToken<'a>),
+    IntError(std::num::ParseIntError),
+    FloatError(std::num::ParseFloatError),
 }
 
 impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
-    type Error = ();
+    type Error = NullDenotationError<'a>;
     fn try_from(token: PToken<'a>) -> Result<Self, Self::Error> {
         match token {
+            // primitive values
             Token::Lexeme(Identifier(identifier)) => Ok(NullDenotation::IDENTIFIER(identifier)),
             Token::Lexeme(Lexeme::LexTrue) => Ok(NullDenotation::BOOL(true)),
             Token::Lexeme(Lexeme::LexFalse) => Ok(NullDenotation::BOOL(false)),
             Token::Number(Number::Binary(number_string)) => {
                 match u64::from_str_radix(number_string, 2) {
                     Ok(number) => Ok(NullDenotation::U64(number)),
-                    Err(_e) => todo!(),
+                    Err(e) => Err(NullDenotationError::IntError(e)),
                 }
             }
             Token::Number(Number::Hex(number_string)) => {
                 match u64::from_str_radix(number_string, 16) {
                     Ok(number) => Ok(NullDenotation::U64(number)),
-                    Err(_e) => todo!(),
+                    Err(e) => Err(NullDenotationError::IntError(e)),
                 }
             }
             Token::Number(Number::Unsigned(number_string)) => {
                 match u64::from_str_radix(number_string, 10) {
                     Ok(number) => Ok(NullDenotation::U64(number)),
-                    Err(_e) => todo!(),
+                    Err(e) => Err(NullDenotationError::IntError(e)),
                 }
             }
             Token::Number(Number::Signed(number_string))
             | Token::Number(Number::Integer(number_string)) => {
                 match i64::from_str_radix(number_string, 10) {
                     Ok(number) => Ok(NullDenotation::I64(number)),
-                    Err(_e) => todo!(),
+                    Err(e) => Err(NullDenotationError::IntError(e)),
                 }
             }
             Token::Number(Number::Float(number_string)) => match number_string.parse::<f64>() {
                 Ok(number) => Ok(NullDenotation::F64(number)),
-                Err(_e) => todo!(),
+                Err(e) => Err(NullDenotationError::FloatError(e)),
             },
             Token::RawString(string) => Ok(NullDenotation::STRING(string)),
-            Token::Lexeme(Lexeme::LexUnit) => todo!(),
-            Token::Lexeme(Lexeme::LexOk) => todo!(),
-            Token::Lexeme(Lexeme::LexErr) => todo!(),
-            Token::Lexeme(Lexeme::LexSome) => todo!(),
-            Token::Lexeme(Lexeme::LexNone) => todo!(),
-            Token::Lexeme(Lexeme::LexCd) => todo!(),
-            Token::Lexeme(Lexeme::LexProcess) => todo!(),
-            Token::Lexeme(Lexeme::LexRun) => todo!(),
-            Token::Lexeme(Lexeme::LexSpawn) => todo!(),
-            Token::Lexeme(Lexeme::LexWait) => todo!(),
-            Token::Lexeme(Lexeme::LexDrop) => todo!(),
+            Token::EscapedString(_) => todo!(),
+            Token::Shell(_) => todo!(),
+            Token::Lexeme(Lexeme::LexUnit) => Ok(NullDenotation::UNIT),
+            Token::Lexeme(Lexeme::LexNone) => Ok(NullDenotation::NONE),
+            // operators
+            Token::Lexeme(Lexeme::LexOk) => Ok(NullDenotation::Ok),
+            Token::Lexeme(Lexeme::LexErr) => Ok(NullDenotation::Err),
+            Token::Lexeme(Lexeme::LexSome) => Ok(NullDenotation::Some),
+            Token::Lexeme(Lexeme::LexCd) => Ok(NullDenotation::ChangeDirectory),
+            Token::Lexeme(Lexeme::LexProcess) => Ok(NullDenotation::Process),
+            Token::Lexeme(Lexeme::LexRun) => Ok(NullDenotation::Run),
+            Token::Lexeme(Lexeme::LexSpawn) => Ok(NullDenotation::Spawn),
+            Token::Lexeme(Lexeme::LexWait) => Ok(NullDenotation::Wait),
+            Token::Lexeme(Lexeme::LexDrop) => Ok(NullDenotation::Drop),
             // let
-            Token::Lexeme(Lexeme::LexLet) => todo!(),
+            Token::Lexeme(Lexeme::LexLet) => Ok(NullDenotation::Let),
             // control flow
-            Token::Lexeme(Lexeme::LexLoop) => todo!(),
-            Token::Lexeme(Lexeme::LexFor) => todo!(),
-            Token::Lexeme(Lexeme::LexWhile) => todo!(),
-            Token::Lexeme(Lexeme::LexIf) => todo!(),
-            Token::Lexeme(Lexeme::LexFn) => todo!(),
+            Token::Lexeme(Lexeme::LexLoop) => Ok(NullDenotation::Loop),
+            Token::Lexeme(Lexeme::LexFor) => Ok(NullDenotation::For),
+            Token::Lexeme(Lexeme::LexWhile) => Ok(NullDenotation::While),
+            Token::Lexeme(Lexeme::LexIf) => Ok(NullDenotation::If),
+            Token::Lexeme(Lexeme::LexFn) => Ok(NullDenotation::Fn),
+            // delimiters
+            Token::Delimiter(Delimiter::HyphenMinus) => Ok(NullDenotation::Negate),
+            Token::Delimiter(Delimiter::OpenBrace) => Ok(NullDenotation::ScopeOpen),
+            Token::Delimiter(Delimiter::OpenSquareBracket) => Ok(NullDenotation::ListOpen),
+            Token::Delimiter(Delimiter::OpenParenthesis) => Ok(NullDenotation::ParenthesisOpen),
+            Token::Delimiter(Delimiter::OpenBraceBracket) => Ok(NullDenotation::MapOpen),
             // unexpected type lexemes
             Token::Lexeme(Lexeme::LexI64)
             | Token::Lexeme(Lexeme::LexU64)
@@ -90,15 +128,10 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
             | Token::Lexeme(Lexeme::LexJcmd)
             | Token::Lexeme(Lexeme::LexJhandle)
             | Token::Lexeme(Lexeme::LexJexit)
-            | Token::Lexeme(Lexeme::LexFhandle) => todo!(),
-            Token::Delimiter(Delimiter::OpenBrace) => todo!(),
-            Token::Delimiter(Delimiter::OpenSquareBracket) => todo!(),
-            Token::Delimiter(Delimiter::OpenParenthesis) => todo!(),
-            Token::Delimiter(Delimiter::HyphenMinus) => Ok(NullDenotation::Negate),
-            Token::Delimiter(Delimiter::Plus) => todo!(),
-            Token::Delimiter(Delimiter::OpenBraceBracket) => todo!(),
+            | Token::Lexeme(Lexeme::LexFhandle) => Err(NullDenotationError::Unexpected(token)),
             // unexpected delimiters
-            Token::Delimiter(Delimiter::OpenAngleBracket)
+            Token::Delimiter(Delimiter::Plus)
+            | Token::Delimiter(Delimiter::OpenAngleBracket)
             | Token::Delimiter(Delimiter::CloseAngleBracket)
             | Token::Delimiter(Delimiter::CloseSquareBracket)
             | Token::Delimiter(Delimiter::CloseParenthesis)
@@ -112,9 +145,9 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
             | Token::Delimiter(Delimiter::ForwardSlash)
             | Token::Delimiter(Delimiter::BackSlash)
             | Token::Delimiter(Delimiter::Asterisk)
-            | Token::Delimiter(Delimiter::EqualEqual) => todo!(),
-            Token::EscapedString(_) => todo!(),
-            Token::Shell(_) => todo!(),
+            | Token::Delimiter(Delimiter::EqualEqual) => {
+                Err(NullDenotationError::Unexpected(token))
+            }
         }
     }
 }
@@ -124,6 +157,12 @@ enum LeftDenotation {
     Subtract,
     Multiply,
     Divide,
+    Call,
+    Index,
+    LessThan,
+    GreaterThan,
+    Equal,
+    Assign,
 }
 
 impl LeftDenotation {
@@ -133,6 +172,12 @@ impl LeftDenotation {
             Self::Subtract => DenotationPrecedence::Add,
             Self::Multiply => DenotationPrecedence::Multiply,
             Self::Divide => DenotationPrecedence::Multiply,
+            Self::Call => DenotationPrecedence::Call,
+            Self::Index => DenotationPrecedence::Call,
+            Self::LessThan => DenotationPrecedence::Compare,
+            Self::GreaterThan => DenotationPrecedence::Compare,
+            Self::Equal => DenotationPrecedence::Compare,
+            Self::Assign => DenotationPrecedence::Assign,
         }
     }
 }
@@ -141,15 +186,15 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
     type Error = ();
     fn try_from(token: &PToken<'a>) -> Result<Self, Self::Error> {
         match token {
-            Token::Delimiter(Delimiter::OpenSquareBracket) => todo!(),
-            Token::Delimiter(Delimiter::OpenParenthesis) => todo!(),
+            Token::Delimiter(Delimiter::OpenSquareBracket) => Ok(LeftDenotation::Index),
+            Token::Delimiter(Delimiter::OpenParenthesis) => Ok(LeftDenotation::Call),
             Token::Delimiter(Delimiter::HyphenMinus) => Ok(LeftDenotation::Subtract),
             Token::Delimiter(Delimiter::Plus) => Ok(LeftDenotation::Add),
-            Token::Delimiter(Delimiter::OpenAngleBracket) => todo!(),
-            Token::Delimiter(Delimiter::CloseAngleBracket) => todo!(),
-            Token::Delimiter(Delimiter::Comma) => todo!(),
+            Token::Delimiter(Delimiter::OpenAngleBracket) => Ok(LeftDenotation::LessThan),
+            Token::Delimiter(Delimiter::CloseAngleBracket) => Ok(LeftDenotation::GreaterThan),
             Token::Delimiter(Delimiter::Period) => todo!(),
-            Token::Delimiter(Delimiter::EqualEqual) => todo!(),
+            Token::Delimiter(Delimiter::EqualEqual) => Ok(LeftDenotation::Equal),
+            Token::Delimiter(Delimiter::Equal) => Ok(LeftDenotation::Assign),
             Token::Delimiter(Delimiter::ForwardSlash) => Ok(LeftDenotation::Divide),
             Token::Delimiter(Delimiter::Asterisk) => Ok(LeftDenotation::Multiply),
             // not left denotation
@@ -193,6 +238,7 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
             | Token::Lexeme(Lexeme::LexJexit)
             | Token::Lexeme(Lexeme::LexFhandle)
             | Token::Delimiter(Delimiter::OpenBrace)
+            | Token::Delimiter(Delimiter::Comma)
             | Token::Delimiter(Delimiter::CloseBrace)
             | Token::Delimiter(Delimiter::CloseSquareBracket)
             | Token::Delimiter(Delimiter::CloseParenthesis)
@@ -200,7 +246,6 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
             | Token::Delimiter(Delimiter::CloseBracketBrace)
             | Token::Delimiter(Delimiter::Semicolon)
             | Token::Delimiter(Delimiter::Colon)
-            | Token::Delimiter(Delimiter::Equal)
             | Token::Delimiter(Delimiter::BackSlash)
             | Token::EscapedString(_)
             | Token::Shell(_) => Err(()),
@@ -211,8 +256,13 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum DenotationPrecedence {
     None,
+    AssignRight,
+    Assign,
+    Compare,
     Add,
     Multiply,
+    Prefix,
+    Call,
 }
 
 #[derive(Debug)]
@@ -223,8 +273,11 @@ pub enum ParserError<L, F> {
 }
 
 #[derive(Debug)]
-pub enum FatalParserError<N> {
+pub enum FatalParserError<'a, N> {
     NUD(N),
+    ExpectedSemicolon(PToken<'a>),
+    ExpectedClosingParenthesis(PToken<'a>),
+    ExpectedType(PToken<'a>),
 }
 
 pub struct Parser<'a, I, E>
@@ -243,23 +296,37 @@ where
             iter: NPeekable::new(iter),
         }
     }
-    pub fn parse(&mut self) -> Option<Result<AST<'a>, ParserError<E, FatalParserError<()>>>> {
+    pub fn parse(
+        &mut self,
+    ) -> Option<Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>>>
+    {
         match self.iter.next()? {
             Err(e) => Some(Err(ParserError::Lexer(e))),
-            Ok(tok) => Some(self.parse_expression(tok, DenotationPrecedence::None)),
+            Ok(tok) => match self.parse_expression(tok, DenotationPrecedence::None, 0) {
+                Err(e) => Some(Err(e)),
+                Ok(ast) => match self.iter.next() {
+                    Some(Err(e)) => Some(Err(ParserError::Lexer(e))),
+                    None | Some(Ok(Token::Delimiter(Delimiter::Semicolon))) => Some(Ok(ast)),
+                    Some(Ok(token)) => Some(Err(ParserError::Fatal(
+                        FatalParserError::ExpectedSemicolon(token),
+                    ))),
+                },
+            },
         }
     }
     fn parse_nud(
         &mut self,
         nud: NullDenotation<'a>,
-    ) -> Result<AST<'a>, ParserError<E, FatalParserError<()>>> {
+        depth: usize,
+    ) -> Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
         match nud {
-            NullDenotation::BOOL(boolean) => Ok(AST::Literal(Literal::BOOL(boolean))),
-            NullDenotation::I64(number) => Ok(AST::Literal(Literal::I64(number))),
-            NullDenotation::U64(number) => Ok(AST::Literal(Literal::U64(number))),
-            NullDenotation::F64(number) => Ok(AST::Literal(Literal::F64(number))),
-            NullDenotation::STRING(string) => Ok(AST::Literal(Literal::STRING(string))),
+            NullDenotation::BOOL(boolean) => Ok(AST::Value(Value::BOOL(boolean))),
+            NullDenotation::I64(number) => Ok(AST::Value(Value::I64(number))),
+            NullDenotation::U64(number) => Ok(AST::Value(Value::U64(number))),
+            NullDenotation::F64(number) => Ok(AST::Value(Value::F64(number))),
+            NullDenotation::STRING(string) => Ok(AST::Value(Value::STRING(string))),
             NullDenotation::IDENTIFIER(identifier) => Ok(AST::Identifier(identifier)),
+            NullDenotation::UNIT => Ok(AST::Value(Value::UNIT)),
             NullDenotation::Negate => {
                 let tok = self
                     .iter
@@ -270,23 +337,216 @@ where
                     Token::Number(Number::Signed(number_string))
                     | Token::Number(Number::Integer(number_string)) => {
                         match i64::from_str_radix(&format!("-{number_string}"), 10) {
-                            Ok(number) => Ok(AST::Literal(Literal::I64(number))),
-                            Err(_e) => todo!(),
+                            Ok(number) => Ok(AST::Value(Value::I64(number))),
+                            Err(e) => Err(ParserError::Fatal(FatalParserError::NUD(
+                                NullDenotationError::IntError(e),
+                            ))),
                         }
                     }
                     tok => {
-                        let right = self.parse_expression(tok, DenotationPrecedence::Add)?;
+                        let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
                         Ok(AST::Operation(Operation::Negate(Box::new(right))))
                     }
                 }
             }
+            NullDenotation::Ok => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Ok(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Err => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Err(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Some => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Some(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::NONE => Ok(AST::Value(Value::Option(None))),
+            NullDenotation::ChangeDirectory => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::ChangeDirectory(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Process => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Process(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Run => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Run(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Spawn => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Spawn(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Wait => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::Operation(Operation::Wait(Box::new(
+                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                ))))
+            }
+            NullDenotation::Drop => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                match tok {
+                    Token::Lexeme(Lexeme::Identifier(identifier)) => {
+                        Ok(AST::Operation(Operation::Drop { identifier }))
+                    }
+                    _tok => todo!(),
+                }
+            }
+            NullDenotation::Let => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let identifier = match tok {
+                    Token::Lexeme(Lexeme::Identifier(identifier)) => identifier,
+                    _tok => todo!(),
+                };
+                let r#type = match self.iter.peek(0).unwrap().ok_or(ParserError::Incomplete)? {
+                    Err(_) => {
+                        return Err(ParserError::Lexer(self.iter.next().unwrap().err().unwrap()));
+                    }
+                    Ok(Token::Delimiter(Delimiter::Colon)) => {
+                        let _ = self.iter.next();
+                        Some(self.parse_type()?)
+                    }
+                    Ok(_) => None,
+                };
+                let expression = match self.iter.peek(0).unwrap().ok_or(ParserError::Incomplete)? {
+                    Err(_) => {
+                        return Err(ParserError::Lexer(self.iter.next().unwrap().err().unwrap()));
+                    }
+                    Ok(Token::Delimiter(Delimiter::Equal)) => {
+                        let _ = self.iter.next();
+                        let tok = self
+                            .iter
+                            .next()
+                            .ok_or(ParserError::Incomplete)?
+                            .map_err(|e| ParserError::Lexer(e))?;
+                        Some(Box::new(self.parse_expression(
+                            tok,
+                            DenotationPrecedence::AssignRight,
+                            depth,
+                        )?))
+                    }
+                    Ok(_) => None,
+                };
+                Ok(AST::Operation(Operation::Let {
+                    identifier,
+                    r#type,
+                    expression,
+                }))
+            }
+            NullDenotation::Loop => todo!(),
+            NullDenotation::For => todo!(),
+            NullDenotation::While => todo!(),
+            NullDenotation::If => todo!(),
+            NullDenotation::Fn => todo!(),
+            NullDenotation::ListOpen => todo!(),
+            NullDenotation::MapOpen => todo!(),
+            NullDenotation::ScopeOpen => todo!(),
+            NullDenotation::ParenthesisOpen => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let expression = self.parse_expression(tok, DenotationPrecedence::None, depth)?;
+                match self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?
+                {
+                    Token::Delimiter(Delimiter::CloseParenthesis) => Ok(expression),
+                    tok => Err(ParserError::Fatal(
+                        FatalParserError::ExpectedClosingParenthesis(tok),
+                    )),
+                }
+            }
+        }
+    }
+    fn parse_type(
+        &mut self,
+    ) -> Result<ValueKind, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
+        let tok = self
+            .iter
+            .next()
+            .ok_or(ParserError::Incomplete)?
+            .map_err(|e| ParserError::Lexer(e))?;
+        match tok {
+            Token::Lexeme(Lexeme::LexI64) => Ok(ValueKind::I64),
+            Token::Lexeme(Lexeme::LexU64) => Ok(ValueKind::U64),
+            Token::Lexeme(Lexeme::LexBool) => Ok(ValueKind::BOOL),
+            Token::Lexeme(Lexeme::LexString) => Ok(ValueKind::STRING),
+            Token::Lexeme(Lexeme::LexList) => Ok(ValueKind::List),
+            Token::Lexeme(Lexeme::LexMap) => Ok(ValueKind::Map),
+            Token::Lexeme(Lexeme::LexOption) => Ok(ValueKind::Option),
+            Token::Lexeme(Lexeme::LexResult) => Ok(ValueKind::Result),
+            Token::Lexeme(Lexeme::LexJcmd) => todo!(),
+            Token::Lexeme(Lexeme::LexJhandle) => todo!(),
+            Token::Lexeme(Lexeme::LexJexit) => todo!(),
+            Token::Lexeme(Lexeme::LexFhandle) => todo!(),
+            tok => Err(ParserError::Fatal(FatalParserError::ExpectedType(tok))),
         }
     }
     fn parse_led(
         &mut self,
         left: AST<'a>,
         led: LeftDenotation,
-    ) -> Result<AST<'a>, ParserError<E, FatalParserError<()>>> {
+        depth: usize,
+    ) -> Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
         match led {
             LeftDenotation::Add => {
                 let tok = self
@@ -294,7 +554,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Add)?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
                 Ok(AST::Operation(Operation::Add(Box::new((left, right)))))
             }
             LeftDenotation::Subtract => {
@@ -303,7 +563,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Add)?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
                 Ok(AST::Operation(Operation::Subtract(Box::new((left, right)))))
             }
             LeftDenotation::Multiply => {
@@ -312,7 +572,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Multiply)?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
                 Ok(AST::Operation(Operation::Multiply(Box::new((left, right)))))
             }
             LeftDenotation::Divide => {
@@ -321,19 +581,29 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Multiply)?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
                 Ok(AST::Operation(Operation::Divide(Box::new((left, right)))))
             }
+            LeftDenotation::Call => todo!(),
+            LeftDenotation::Index => todo!(),
+            LeftDenotation::LessThan => todo!(),
+            LeftDenotation::GreaterThan => todo!(),
+            LeftDenotation::Equal => todo!(),
+            LeftDenotation::Assign => todo!(),
         }
     }
     fn parse_expression(
         &mut self,
         tok: PToken<'a>,
         precedence: DenotationPrecedence,
-    ) -> Result<AST<'a>, ParserError<E, FatalParserError<()>>> {
+        depth: usize,
+    ) -> Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
+        if depth > 1000 {
+            panic!("maximum recursion depth reached")
+        }
         let mut left = match NullDenotation::try_from(tok) {
             Err(e) => return Err(ParserError::Fatal(FatalParserError::NUD(e))),
-            Ok(nud) => self.parse_nud(nud)?,
+            Ok(nud) => self.parse_nud(nud, depth + 1)?,
         };
         loop {
             let led = match self.iter.peek(0) {
@@ -351,7 +621,7 @@ where
                 break;
             }
             let _ = self.iter.next();
-            left = self.parse_led(left, led)?;
+            left = self.parse_led(left, led, depth + 1)?;
         }
         Ok(left)
     }
@@ -361,7 +631,7 @@ impl<'a, I, E> Iterator for Parser<'a, I, E>
 where
     I: Iterator<Item = Result<PToken<'a>, E>>,
 {
-    type Item = Result<AST<'a>, ParserError<E, FatalParserError<()>>>;
+    type Item = Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>>;
     fn next(&mut self) -> Option<Self::Item> {
         self.parse()
     }
