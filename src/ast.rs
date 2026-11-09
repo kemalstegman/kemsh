@@ -1,32 +1,69 @@
-#[derive(Debug)]
-pub enum AST<STRING, IDENTIFIER> {
-    Identifier(IDENTIFIER),
-    Value(Value<Self, STRING, IDENTIFIER>),
-    POperation(Box<POperation<Self>>),
-    IOperation(Box<IOperation<Self>>),
-    SpecialOperation(SpecialOperation<Self, STRING, IDENTIFIER, ValueKind>),
+use std::rc::Rc;
+
+pub trait TextOwnership {
+    type Text<'a>;
+}
+
+pub struct SourceBorrowedText;
+
+impl TextOwnership for SourceBorrowedText {
+    type Text<'a> = &'a str;
+}
+
+pub struct OwnedText;
+
+impl TextOwnership for OwnedText {
+    type Text<'a> = String;
+}
+
+pub trait ValueOwnership {
+    type DirectValue<V>;
+    type IndirectValue<V>;
+}
+
+pub struct OwnedValues;
+
+impl ValueOwnership for OwnedValues {
+    type DirectValue<V> = V;
+    type IndirectValue<V> = Box<V>;
+}
+
+pub struct BorrowedValues;
+
+impl ValueOwnership for BorrowedValues {
+    type DirectValue<V> = Rc<V>;
+    type IndirectValue<V> = Rc<V>;
 }
 
 #[derive(Debug)]
-pub enum Value<AST, STRING, IDENTIFIER> {
+pub enum AST<'a, TO: TextOwnership, VO: ValueOwnership> {
+    Identifier(TO::Text<'a>),
+    Value(VO::DirectValue<Value<'a, TO, VO>>),
+    POperation(Box<POperation<Self>>),
+    IOperation(Box<IOperation<Self>>),
+    SpecialOperation(SpecialOperation<'a, TO, Self, ValueKind>),
+}
+
+#[derive(Debug)]
+pub enum Value<'a, TO: TextOwnership, VO: ValueOwnership> {
     I64(i64),
     U64(u64),
     F64(f64),
     BOOL(bool),
-    STRING(STRING),
+    STRING(TO::Text<'a>),
     UNIT,
-    Option(Option<Box<Self>>),
-    Result(Result<Box<Self>, Box<Self>>),
-    List(Vec<Self>),
-    Map(Vec<(STRING, Self)>),
-    Function(Box<(Vec<(IDENTIFIER,)>, Vec<AST>)>),
+    Option(Option<VO::IndirectValue<Self>>),
+    Result(Result<VO::IndirectValue<Self>, VO::IndirectValue<Self>>),
+    List(Vec<VO::DirectValue<Self>>),
+    Map(Vec<(TO::Text<'a>, VO::DirectValue<Self>)>),
+    Function(Box<(Vec<(TO::Text<'a>,)>, Vec<AST<'a, TO, VO>>)>),
     Jcmd(()),
     Jhandle(()),
     Jexit(()),
     Fhandle(()),
 }
 
-impl<AST, STRING, IDENTIFIER> Value<AST, STRING, IDENTIFIER> {
+impl<'a, TO: TextOwnership, VO: ValueOwnership> Value<'a, TO, VO> {
     pub fn kind(&self) -> ValueKind {
         match self {
             Value::I64(_) => ValueKind::I64,
@@ -81,33 +118,6 @@ pub enum IOperation<AST> {
     Index { lhs: AST, rhs: AST },
 }
 
-impl<AST> IOperation<AST> {
-    pub fn kind(&self) -> IOperationKind {
-        match self {
-            IOperation::Add { lhs: _, rhs: _ } => IOperationKind::Add,
-            IOperation::Subtract { lhs: _, rhs: _ } => IOperationKind::Subtract,
-            IOperation::Multiply { lhs: _, rhs: _ } => IOperationKind::Multiply,
-            IOperation::Divide { lhs: _, rhs: _ } => IOperationKind::Divide,
-            IOperation::LessThan { lhs: _, rhs: _ } => IOperationKind::LessThan,
-            IOperation::GreaterThan { lhs: _, rhs: _ } => IOperationKind::GreaterThan,
-            IOperation::Equal { lhs: _, rhs: _ } => IOperationKind::Equal,
-            IOperation::Index { lhs: _, rhs: _ } => IOperationKind::Index,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub enum IOperationKind {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    LessThan,
-    GreaterThan,
-    Equal,
-    Index,
-}
-
 /// prefix operation
 #[derive(Debug)]
 pub enum POperation<AST> {
@@ -122,44 +132,15 @@ pub enum POperation<AST> {
     Wait { rhs: AST },
 }
 
-impl<AST> POperation<AST> {
-    pub fn kind(&self) -> POperationKind {
-        match self {
-            POperation::Negate { rhs: _ } => POperationKind::Negate,
-            POperation::Some { rhs: _ } => POperationKind::Some,
-            POperation::Ok { rhs: _ } => POperationKind::Ok,
-            POperation::Err { rhs: _ } => POperationKind::Err,
-            POperation::ChangeDirectory { rhs: _ } => POperationKind::ChangeDirectory,
-            POperation::Run { rhs: _ } => POperationKind::Run,
-            POperation::Spawn { rhs: _ } => POperationKind::Spawn,
-            POperation::Process { rhs: _ } => POperationKind::Process,
-            POperation::Wait { rhs: _ } => POperationKind::Wait,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub enum POperationKind {
-    Negate,
-    Some,
-    Ok,
-    Err,
-    ChangeDirectory,
-    Run,
-    Spawn,
-    Process,
-    Wait,
-}
-
 #[derive(Debug)]
-pub enum SpecialOperation<AST, STRING, IDENTIFIER, VALUEKIND> {
+pub enum SpecialOperation<'a, TO: TextOwnership, AST, VALUEKIND> {
     List(Vec<AST>),
-    Map(Vec<(STRING, AST)>),
+    Map(Vec<(TO::Text<'a>, AST)>),
     Drop {
-        rhs_iden: IDENTIFIER,
+        rhs_iden: TO::Text<'a>,
     },
     Let {
-        identifier: IDENTIFIER,
+        identifier: TO::Text<'a>,
         r#type: Option<VALUEKIND>,
         expression: Option<Box<AST>>,
     },
@@ -168,7 +149,7 @@ pub enum SpecialOperation<AST, STRING, IDENTIFIER, VALUEKIND> {
         lhs: Box<AST>,
         rhs_args: Vec<AST>,
     },
-    Shell(STRING),
+    Shell(TO::Text<'a>),
     Loop {
         body: Vec<AST>,
     },
@@ -182,52 +163,4 @@ pub enum SpecialOperation<AST, STRING, IDENTIFIER, VALUEKIND> {
     },
     If(Box<(AST, AST)>),
     IfElse(Box<(AST, AST, AST)>),
-}
-
-impl<AST, STRING, IDENTIFIER, VALUEKIND> SpecialOperation<AST, STRING, IDENTIFIER, VALUEKIND> {
-    pub fn kind(&self) -> SpecialOperationKind {
-        match self {
-            SpecialOperation::List(_) => SpecialOperationKind::List,
-            SpecialOperation::Map(_) => SpecialOperationKind::Map,
-            SpecialOperation::Drop { rhs_iden: _ } => SpecialOperationKind::Drop,
-            SpecialOperation::Let {
-                identifier: _,
-                r#type: _,
-                expression: _,
-            } => SpecialOperationKind::Let,
-            SpecialOperation::Assign(()) => SpecialOperationKind::Assign,
-            SpecialOperation::Call {
-                lhs: _,
-                rhs_args: _,
-            } => SpecialOperationKind::Call,
-            SpecialOperation::Shell(_) => SpecialOperationKind::Shell,
-            SpecialOperation::Loop { body: _ } => SpecialOperationKind::Loop,
-            SpecialOperation::While {
-                condition: _,
-                body: _,
-            } => SpecialOperationKind::While,
-            SpecialOperation::For {
-                iterator: _,
-                body: _,
-            } => SpecialOperationKind::For,
-            SpecialOperation::If(_) => SpecialOperationKind::If,
-            SpecialOperation::IfElse(_) => SpecialOperationKind::IfElse,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub enum SpecialOperationKind {
-    List,
-    Map,
-    Drop,
-    Let,
-    Assign,
-    Call,
-    Shell,
-    Loop,
-    While,
-    For,
-    If,
-    IfElse,
 }

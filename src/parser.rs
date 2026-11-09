@@ -1,7 +1,10 @@
 use std::iter::FusedIterator;
 
 use crate::{
-    ast::{AST, BOperation, Value, ValueKind},
+    ast::{
+        AST, IOperation, OwnedValues, POperation, SourceBorrowedText, SpecialOperation, Value,
+        ValueKind,
+    },
     lexer::{
         Delimiter,
         Lexeme::{self, Identifier},
@@ -303,8 +306,12 @@ where
     }
     pub fn parse(
         &mut self,
-    ) -> Option<Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>>>
-    {
+    ) -> Option<
+        Result<
+            AST<'a, SourceBorrowedText, OwnedValues>,
+            ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
+        >,
+    > {
         match self.iter.next()? {
             Err(e) => Some(Err(ParserError::Lexer(e))),
             Ok(tok) => match self.parse_expression(tok, DenotationPrecedence::None, 0) {
@@ -323,7 +330,10 @@ where
         &mut self,
         nud: NullDenotation<'a>,
         depth: usize,
-    ) -> Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
+    ) -> Result<
+        AST<'a, SourceBorrowedText, OwnedValues>,
+        ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
+    > {
         match nud {
             NullDenotation::BOOL(boolean) => Ok(AST::Value(Value::BOOL(boolean))),
             NullDenotation::I64(number) => Ok(AST::Value(Value::I64(number))),
@@ -349,8 +359,8 @@ where
                         }
                     }
                     tok => {
-                        let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
-                        Ok(AST::BOperation(Box::new(BOperation::Negate(right))))
+                        let rhs = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
+                        Ok(AST::POperation(Box::new(POperation::Negate { rhs })))
                     }
                 }
             }
@@ -360,9 +370,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Ok(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Ok {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Err => {
                 let tok = self
@@ -370,9 +380,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Err(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Err {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Some => {
                 let tok = self
@@ -380,9 +390,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Some(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Some {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::NONE => Ok(AST::Value(Value::Option(None))),
             NullDenotation::ChangeDirectory => {
@@ -391,9 +401,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::ChangeDirectory(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::ChangeDirectory {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Process => {
                 let tok = self
@@ -401,9 +411,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Process(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Process {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Run => {
                 let tok = self
@@ -411,9 +421,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Run(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Run {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Spawn => {
                 let tok = self
@@ -421,9 +431,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Spawn(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Spawn {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Wait => {
                 let tok = self
@@ -431,9 +441,9 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::BOperation(Box::new(BOperation::Wait(
-                    self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
-                ))))
+                Ok(AST::POperation(Box::new(POperation::Wait {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
             }
             NullDenotation::Drop => {
                 let tok = self
@@ -443,7 +453,9 @@ where
                     .map_err(|e| ParserError::Lexer(e))?;
                 match tok {
                     Token::Lexeme(Lexeme::Identifier(identifier)) => {
-                        Ok(AST::BOperation(Box::new(BOperation::Drop { identifier })))
+                        Ok(AST::SpecialOperation(SpecialOperation::Drop {
+                            rhs_iden: identifier,
+                        }))
                     }
                     tok => {
                         return Err(ParserError::Fatal(FatalParserError::ExpectedIdentifier(
@@ -487,19 +499,19 @@ where
                             .next()
                             .ok_or(ParserError::Incomplete)?
                             .map_err(|e| ParserError::Lexer(e))?;
-                        Some(self.parse_expression(
+                        Some(Box::new(self.parse_expression(
                             tok,
                             DenotationPrecedence::AssignRight,
                             depth,
-                        )?)
+                        )?))
                     }
                     Ok(_) => None,
                 };
-                Ok(AST::BOperation(Box::new(BOperation::Let {
+                Ok(AST::SpecialOperation(SpecialOperation::Let {
                     identifier,
                     r#type,
                     expression,
-                })))
+                }))
             }
             NullDenotation::Loop => todo!(),
             NullDenotation::For => todo!(),
@@ -528,7 +540,9 @@ where
                     )),
                 }
             }
-            NullDenotation::Shell(shell) => Ok(AST::BOperation(Box::new(BOperation::Shell(shell)))),
+            NullDenotation::Shell(shell) => {
+                Ok(AST::SpecialOperation(SpecialOperation::Shell(shell)))
+            }
         }
     }
     fn parse_type(
@@ -557,10 +571,13 @@ where
     }
     fn parse_led(
         &mut self,
-        left: AST<'a>,
+        lhs: AST<'a, SourceBorrowedText, OwnedValues>,
         led: LeftDenotation,
         depth: usize,
-    ) -> Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
+    ) -> Result<
+        AST<'a, SourceBorrowedText, OwnedValues>,
+        ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
+    > {
         match led {
             LeftDenotation::Add => {
                 let tok = self
@@ -568,8 +585,8 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::Add(left, right))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::Add { lhs, rhs })))
             }
             LeftDenotation::Subtract => {
                 let tok = self
@@ -577,8 +594,8 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::Subtract(left, right))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::Subtract { lhs, rhs })))
             }
             LeftDenotation::Multiply => {
                 let tok = self
@@ -586,8 +603,8 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::Multiply(left, right))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::Multiply { lhs, rhs })))
             }
             LeftDenotation::Divide => {
                 let tok = self
@@ -595,8 +612,8 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::Divide(left, right))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::Divide { lhs, rhs })))
             }
             LeftDenotation::Call => todo!(),
             LeftDenotation::Index => {
@@ -605,16 +622,16 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let expression = self.parse_expression(tok, DenotationPrecedence::None, depth)?;
+                let rhs = self.parse_expression(tok, DenotationPrecedence::None, depth)?;
                 match self
                     .iter
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?
                 {
-                    Token::Delimiter(Delimiter::CloseSquareBracket) => Ok(AST::BOperation(
-                        Box::new(BOperation::Index(left, expression)),
-                    )),
+                    Token::Delimiter(Delimiter::CloseSquareBracket) => {
+                        Ok(AST::IOperation(Box::new(IOperation::Index { lhs, rhs })))
+                    }
                     tok => Err(ParserError::Fatal(
                         FatalParserError::ExpectedClosingSquareBracket(tok),
                     )),
@@ -626,8 +643,8 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::LessThan(left, right))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::LessThan { lhs, rhs })))
             }
             LeftDenotation::GreaterThan => {
                 let tok = self
@@ -635,10 +652,11 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::GreaterThan(
-                    left, right,
-                ))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::GreaterThan {
+                    lhs,
+                    rhs,
+                })))
             }
             LeftDenotation::Equal => {
                 let tok = self
@@ -646,8 +664,8 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                let right = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
-                Ok(AST::BOperation(Box::new(BOperation::Equal(left, right))))
+                let rhs = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
+                Ok(AST::IOperation(Box::new(IOperation::Equal { lhs, rhs })))
             }
             LeftDenotation::Assign => todo!(),
             LeftDenotation::Field => todo!(),
@@ -658,7 +676,10 @@ where
         tok: PToken<'a>,
         precedence: DenotationPrecedence,
         depth: usize,
-    ) -> Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>> {
+    ) -> Result<
+        AST<'a, SourceBorrowedText, OwnedValues>,
+        ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
+    > {
         if depth > 1000 {
             panic!("maximum recursion depth reached")
         }
@@ -692,7 +713,10 @@ impl<'a, I, E> Iterator for Parser<'a, I, E>
 where
     I: Iterator<Item = Result<PToken<'a>, E>>,
 {
-    type Item = Result<AST<'a>, ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>>;
+    type Item = Result<
+        AST<'a, SourceBorrowedText, OwnedValues>,
+        ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
+    >;
     fn next(&mut self) -> Option<Self::Item> {
         self.parse()
     }
