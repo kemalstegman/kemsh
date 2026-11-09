@@ -2,7 +2,8 @@
 pub enum AST<'a> {
     Identifier(&'a str),
     Value(Value<'a>),
-    Operation(Operation<'a>),
+    BOperation(Box<BOperation<'a>>),
+    VOperation(VOperation<'a>),
     Control(Control<'a>),
 }
 
@@ -26,8 +27,12 @@ pub enum Value<'a> {
     Option(Option<Box<Value<'a>>>),
     Result(Result<Box<Value<'a>>, Box<Value<'a>>>),
     List(Vec<Value<'a>>),
-    Map(()),
-    Function((), Vec<AST<'a>>),
+    Map(Vec<(&'a str, Value<'a>)>),
+    Function(Vec<(&'a str,)>, Vec<AST<'a>>),
+    Jcmd(()),
+    Jhandle(()),
+    Jexit(()),
+    Fhandle(()),
 }
 
 impl<'a> Value<'a> {
@@ -44,6 +49,10 @@ impl<'a> Value<'a> {
             Value::List(_) => ValueKind::List,
             Value::Map(_) => ValueKind::Map,
             Value::Function(_, _) => ValueKind::Function,
+            Value::Jcmd(_) => ValueKind::Jcmd,
+            Value::Jhandle(_) => ValueKind::Jhandle,
+            Value::Jexit(_) => ValueKind::Jexit,
+            Value::Fhandle(_) => ValueKind::Fhandle,
         }
     }
 }
@@ -61,30 +70,47 @@ pub enum ValueKind {
     List,
     Map,
     Function,
+    Shell,
+    Jcmd,
+    Jhandle,
+    Jexit,
+    Fhandle,
 }
 
 #[derive(Debug)]
-pub enum Operation<'a> {
-    Add(Box<(AST<'a>, AST<'a>)>),
-    Subtract(Box<(AST<'a>, AST<'a>)>),
-    Multiply(Box<(AST<'a>, AST<'a>)>),
-    Divide(Box<(AST<'a>, AST<'a>)>),
-    Negate(Box<AST<'a>>),
-    Some(Box<AST<'a>>),
-    Ok(Box<AST<'a>>),
-    Err(Box<AST<'a>>),
-    ChangeDirectory(Box<AST<'a>>),
-    Run(Box<AST<'a>>),
-    Spawn(Box<AST<'a>>),
-    Process(Box<AST<'a>>),
-    Wait(Box<AST<'a>>),
+pub enum BOperation<'a> {
+    Add(AST<'a>, AST<'a>),
+    Subtract(AST<'a>, AST<'a>),
+    Multiply(AST<'a>, AST<'a>),
+    Divide(AST<'a>, AST<'a>),
+    Negate(AST<'a>),
+    Some(AST<'a>),
+    Ok(AST<'a>),
+    Err(AST<'a>),
+    ChangeDirectory(AST<'a>),
+    Run(AST<'a>),
+    Spawn(AST<'a>),
+    Process(AST<'a>),
+    Wait(AST<'a>),
     Drop {
         identifier: &'a str,
     },
     Let {
         identifier: &'a str,
         r#type: Option<ValueKind>,
-        expression: Option<Box<AST<'a>>>,
+        expression: Option<AST<'a>>,
     },
-    Assign,
+    Assign(()),
+    LessThan(AST<'a>, AST<'a>),
+    GreaterThan(AST<'a>, AST<'a>),
+    Equal(AST<'a>, AST<'a>),
+    Index(AST<'a>, AST<'a>),
+    Shell(&'a str),
+}
+
+#[derive(Debug)]
+pub enum VOperation<'a> {
+    Call(Box<AST<'a>>, Vec<AST<'a>>),
+    List(Vec<AST<'a>>),
+    Map(Vec<(&'a str, AST<'a>)>),
 }

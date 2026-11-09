@@ -1,7 +1,7 @@
 use std::iter::FusedIterator;
 
 use crate::{
-    ast::{AST, Operation, Value, ValueKind},
+    ast::{AST, BOperation, Value, ValueKind},
     lexer::{
         Delimiter,
         Lexeme::{self, Identifier},
@@ -41,6 +41,7 @@ enum NullDenotation<'a> {
     MapOpen,
     ScopeOpen,
     ParenthesisOpen,
+    Shell(&'a str),
 }
 
 #[derive(Debug)]
@@ -89,7 +90,7 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
             },
             Token::RawString(string) => Ok(NullDenotation::STRING(string)),
             Token::EscapedString(_) => todo!(),
-            Token::Shell(_) => todo!(),
+            Token::Shell(shell) => Ok(NullDenotation::Shell(shell)),
             Token::Lexeme(Lexeme::LexUnit) => Ok(NullDenotation::UNIT),
             Token::Lexeme(Lexeme::LexNone) => Ok(NullDenotation::NONE),
             // operators
@@ -163,6 +164,7 @@ enum LeftDenotation {
     GreaterThan,
     Equal,
     Assign,
+    Field,
 }
 
 impl LeftDenotation {
@@ -178,6 +180,7 @@ impl LeftDenotation {
             Self::GreaterThan => DenotationPrecedence::Compare,
             Self::Equal => DenotationPrecedence::Compare,
             Self::Assign => DenotationPrecedence::Assign,
+            Self::Field => DenotationPrecedence::Call,
         }
     }
 }
@@ -192,7 +195,7 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
             Token::Delimiter(Delimiter::Plus) => Ok(LeftDenotation::Add),
             Token::Delimiter(Delimiter::OpenAngleBracket) => Ok(LeftDenotation::LessThan),
             Token::Delimiter(Delimiter::CloseAngleBracket) => Ok(LeftDenotation::GreaterThan),
-            Token::Delimiter(Delimiter::Period) => todo!(),
+            Token::Delimiter(Delimiter::Period) => Ok(LeftDenotation::Field),
             Token::Delimiter(Delimiter::EqualEqual) => Ok(LeftDenotation::Equal),
             Token::Delimiter(Delimiter::Equal) => Ok(LeftDenotation::Assign),
             Token::Delimiter(Delimiter::ForwardSlash) => Ok(LeftDenotation::Divide),
@@ -277,7 +280,9 @@ pub enum FatalParserError<'a, N> {
     NUD(N),
     ExpectedSemicolon(PToken<'a>),
     ExpectedClosingParenthesis(PToken<'a>),
+    ExpectedClosingSquareBracket(PToken<'a>),
     ExpectedType(PToken<'a>),
+    ExpectedIdentifier(PToken<'a>),
 }
 
 pub struct Parser<'a, I, E>
@@ -345,7 +350,7 @@ where
                     }
                     tok => {
                         let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
-                        Ok(AST::Operation(Operation::Negate(Box::new(right))))
+                        Ok(AST::BOperation(Box::new(BOperation::Negate(right))))
                     }
                 }
             }
@@ -355,7 +360,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Ok(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Ok(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -365,7 +370,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Err(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Err(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -375,7 +380,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Some(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Some(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -386,7 +391,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::ChangeDirectory(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::ChangeDirectory(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -396,7 +401,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Process(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Process(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -406,7 +411,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Run(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Run(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -416,7 +421,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Spawn(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Spawn(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -426,7 +431,7 @@ where
                     .next()
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
-                Ok(AST::Operation(Operation::Wait(Box::new(
+                Ok(AST::BOperation(Box::new(BOperation::Wait(
                     self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 ))))
             }
@@ -438,9 +443,13 @@ where
                     .map_err(|e| ParserError::Lexer(e))?;
                 match tok {
                     Token::Lexeme(Lexeme::Identifier(identifier)) => {
-                        Ok(AST::Operation(Operation::Drop { identifier }))
+                        Ok(AST::BOperation(Box::new(BOperation::Drop { identifier })))
                     }
-                    _tok => todo!(),
+                    tok => {
+                        return Err(ParserError::Fatal(FatalParserError::ExpectedIdentifier(
+                            tok,
+                        )));
+                    }
                 }
             }
             NullDenotation::Let => {
@@ -451,7 +460,11 @@ where
                     .map_err(|e| ParserError::Lexer(e))?;
                 let identifier = match tok {
                     Token::Lexeme(Lexeme::Identifier(identifier)) => identifier,
-                    _tok => todo!(),
+                    tok => {
+                        return Err(ParserError::Fatal(FatalParserError::ExpectedIdentifier(
+                            tok,
+                        )));
+                    }
                 };
                 let r#type = match self.iter.peek(0).unwrap().ok_or(ParserError::Incomplete)? {
                     Err(_) => {
@@ -474,19 +487,19 @@ where
                             .next()
                             .ok_or(ParserError::Incomplete)?
                             .map_err(|e| ParserError::Lexer(e))?;
-                        Some(Box::new(self.parse_expression(
+                        Some(self.parse_expression(
                             tok,
                             DenotationPrecedence::AssignRight,
                             depth,
-                        )?))
+                        )?)
                     }
                     Ok(_) => None,
                 };
-                Ok(AST::Operation(Operation::Let {
+                Ok(AST::BOperation(Box::new(BOperation::Let {
                     identifier,
                     r#type,
                     expression,
-                }))
+                })))
             }
             NullDenotation::Loop => todo!(),
             NullDenotation::For => todo!(),
@@ -515,6 +528,7 @@ where
                     )),
                 }
             }
+            NullDenotation::Shell(shell) => Ok(AST::BOperation(Box::new(BOperation::Shell(shell)))),
         }
     }
     fn parse_type(
@@ -534,10 +548,10 @@ where
             Token::Lexeme(Lexeme::LexMap) => Ok(ValueKind::Map),
             Token::Lexeme(Lexeme::LexOption) => Ok(ValueKind::Option),
             Token::Lexeme(Lexeme::LexResult) => Ok(ValueKind::Result),
-            Token::Lexeme(Lexeme::LexJcmd) => todo!(),
-            Token::Lexeme(Lexeme::LexJhandle) => todo!(),
-            Token::Lexeme(Lexeme::LexJexit) => todo!(),
-            Token::Lexeme(Lexeme::LexFhandle) => todo!(),
+            Token::Lexeme(Lexeme::LexJcmd) => Ok(ValueKind::Jcmd),
+            Token::Lexeme(Lexeme::LexJhandle) => Ok(ValueKind::Jhandle),
+            Token::Lexeme(Lexeme::LexJexit) => Ok(ValueKind::Jexit),
+            Token::Lexeme(Lexeme::LexFhandle) => Ok(ValueKind::Fhandle),
             tok => Err(ParserError::Fatal(FatalParserError::ExpectedType(tok))),
         }
     }
@@ -555,7 +569,7 @@ where
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
                 let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
-                Ok(AST::Operation(Operation::Add(Box::new((left, right)))))
+                Ok(AST::BOperation(Box::new(BOperation::Add(left, right))))
             }
             LeftDenotation::Subtract => {
                 let tok = self
@@ -564,7 +578,7 @@ where
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
                 let right = self.parse_expression(tok, DenotationPrecedence::Add, depth)?;
-                Ok(AST::Operation(Operation::Subtract(Box::new((left, right)))))
+                Ok(AST::BOperation(Box::new(BOperation::Subtract(left, right))))
             }
             LeftDenotation::Multiply => {
                 let tok = self
@@ -573,7 +587,7 @@ where
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
                 let right = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
-                Ok(AST::Operation(Operation::Multiply(Box::new((left, right)))))
+                Ok(AST::BOperation(Box::new(BOperation::Multiply(left, right))))
             }
             LeftDenotation::Divide => {
                 let tok = self
@@ -582,14 +596,61 @@ where
                     .ok_or(ParserError::Incomplete)?
                     .map_err(|e| ParserError::Lexer(e))?;
                 let right = self.parse_expression(tok, DenotationPrecedence::Multiply, depth)?;
-                Ok(AST::Operation(Operation::Divide(Box::new((left, right)))))
+                Ok(AST::BOperation(Box::new(BOperation::Divide(left, right))))
             }
             LeftDenotation::Call => todo!(),
-            LeftDenotation::Index => todo!(),
-            LeftDenotation::LessThan => todo!(),
-            LeftDenotation::GreaterThan => todo!(),
-            LeftDenotation::Equal => todo!(),
+            LeftDenotation::Index => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let expression = self.parse_expression(tok, DenotationPrecedence::None, depth)?;
+                match self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?
+                {
+                    Token::Delimiter(Delimiter::CloseSquareBracket) => Ok(AST::BOperation(
+                        Box::new(BOperation::Index(left, expression)),
+                    )),
+                    tok => Err(ParserError::Fatal(
+                        FatalParserError::ExpectedClosingSquareBracket(tok),
+                    )),
+                }
+            }
+            LeftDenotation::LessThan => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
+                Ok(AST::BOperation(Box::new(BOperation::LessThan(left, right))))
+            }
+            LeftDenotation::GreaterThan => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
+                Ok(AST::BOperation(Box::new(BOperation::GreaterThan(
+                    left, right,
+                ))))
+            }
+            LeftDenotation::Equal => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                let right = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
+                Ok(AST::BOperation(Box::new(BOperation::Equal(left, right))))
+            }
             LeftDenotation::Assign => todo!(),
+            LeftDenotation::Field => todo!(),
         }
     }
     fn parse_expression(

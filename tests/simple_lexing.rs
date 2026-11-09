@@ -7,7 +7,7 @@ fn lex_vec(
 ) -> Vec<
     Result<
         Token<Lexeme<'_>, Number<'_>, Delimiter, &str, (), &str>,
-        LexerError<FatalLexerError<Infallible, Infallible, Infallible, char, (), Infallible>>,
+        LexerError<FatalLexerError<Infallible, Infallible, char, char, (), Infallible>>,
     >,
 > {
     Lexer::<

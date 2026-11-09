@@ -133,7 +133,7 @@ pub struct StandardDelimiterLexer;
 
 impl DelimiterLexer for StandardDelimiterLexer {
     type Delimiter<'a> = Delimiter;
-    type Error = Infallible;
+    type Error = char;
     fn lex<'a>(lexable: &mut &'a str) -> Result<Self::Delimiter<'a>, LexerError<Self::Error>> {
         let mut char_iter = lexable.chars();
         let (bytes, delimiter) = match char_iter.next().unwrap() {
@@ -164,7 +164,7 @@ impl DelimiterLexer for StandardDelimiterLexer {
             '/' => (1, Delimiter::ForwardSlash),
             '\\' => (1, Delimiter::BackSlash),
             '*' => (1, Delimiter::Asterisk),
-            _ => todo!(),
+            ch => return Err(LexerError::Fatal(ch)),
         };
         *lexable = &lexable[bytes..];
         Ok(delimiter)
