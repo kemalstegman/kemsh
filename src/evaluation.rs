@@ -1,9 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::ast::{
-    AST, BOperation, Control, VOperation,
-    value::{IdentifierBorrowed, IdentifierOwned, Value, ValueKind, ValueOwned, ValueShared},
-};
+use crate::ast::{AST, BOperation, Control, VOperation, Value, ValueKind};
 
 pub struct BindingTable(Vec<Scope>);
 
@@ -101,16 +98,16 @@ impl Scope {
 pub enum Variable {
     Declared,
     TypeBound(ValueKind),
-    Value(Rc<Value<IdentifierOwned, ValueShared>>),
+    Value(Rc<Value<'a>>),
 }
 
 #[derive(Debug)]
 pub enum FatalEvaluationError {}
 
 pub fn evaluate<'a>(
-    ast: AST<IdentifierBorrowed<'a>, ValueOwned>,
+    ast: AST<'a>,
     scope_registry: &mut ScopeRegistry,
-) -> Result<Rc<Value<IdentifierOwned, ValueShared>>, FatalEvaluationError> {
+) -> Result<Rc<Value<'a>>, FatalEvaluationError> {
     match ast {
         AST::Value(v) => Ok(Rc::new(v)),
         AST::Identifier(identifier) => match scope_registry.get(identifier) {
@@ -133,7 +130,7 @@ pub fn evaluate<'a>(
             elements
                 .into_iter()
                 .map(|ast| evaluate(ast, scope_registry))
-                .collect::<Result<Vec<Rc<Value<ASTBorrowed<'a>>>>, FatalEvaluationError>>()?,
+                .collect::<Result<Vec<Rc<Value<'a>>>, FatalEvaluationError>>()?,
         ))),
         AST::VOperation(VOperation::Map(pairs)) => Ok(Rc::new(Value::Map(
             pairs
@@ -141,16 +138,15 @@ pub fn evaluate<'a>(
                 .map(|(key, value_ast)| {
                     evaluate(value_ast, scope_registry).map(|value| (key, value))
                 })
-                .collect::<Result<Vec<(&'a str, Value<ASTBorrowed<'a>>)>, FatalEvaluationError>>(
-                )?,
+                .collect::<Result<Vec<(&'a str, Value<'a>)>, FatalEvaluationError>>()?,
         ))),
     }
 }
 
 pub fn evaluate_boperation<'a>(
-    boperation: BOperation<ASTBorrowed<'a>>,
+    boperation: BOperation<'a>,
     scope_registry: &mut ScopeRegistry,
-) -> Result<Value<ASTBorrowed<'a>>, FatalEvaluationError> {
+) -> Result<Value<'a>, FatalEvaluationError> {
     match boperation {
         BOperation::Add(lhs, rhs) => match (
             evaluate(lhs, scope_registry)?,

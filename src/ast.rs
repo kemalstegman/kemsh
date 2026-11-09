@@ -1,6 +1,8 @@
+type Identifier<'a> = &'a str;
+
 #[derive(Debug)]
 pub enum AST<'a> {
-    Identifier(&'a str),
+    Identifier(Identifier<'a>),
     Value(Value<'a>),
     BOperation(Box<BOperation<'a>>),
     VOperation(VOperation<'a>),
@@ -27,8 +29,8 @@ pub enum Value<'a> {
     Option(Option<Box<Value<'a>>>),
     Result(Result<Box<Value<'a>>, Box<Value<'a>>>),
     List(Vec<Value<'a>>),
-    Map(Vec<(&'a str, Value<'a>)>),
-    Function(Vec<(&'a str,)>, Vec<AST<'a>>),
+    Map(Vec<(Identifier<'a>, Value<'a>)>),
+    Function(Vec<(Identifier<'a>,)>, Vec<AST<'a>>),
     Jcmd(()),
     Jhandle(()),
     Jexit(()),
@@ -57,7 +59,7 @@ impl<'a> Value<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum ValueKind {
     I64,
     U64,
@@ -93,10 +95,10 @@ pub enum BOperation<'a> {
     Process(AST<'a>),
     Wait(AST<'a>),
     Drop {
-        identifier: &'a str,
+        identifier: Identifier<'a>,
     },
     Let {
-        identifier: &'a str,
+        identifier: Identifier<'a>,
         r#type: Option<ValueKind>,
         expression: Option<AST<'a>>,
     },
