@@ -1,38 +1,43 @@
+use std::fmt::Debug;
 use std::rc::Rc;
 
-pub trait TextOwnership {
-    type Text<'a>;
+pub trait TextOwnership: Debug {
+    type Text<'a>: Debug;
 }
 
+#[derive(Debug)]
 pub struct SourceBorrowedText;
 
 impl TextOwnership for SourceBorrowedText {
     type Text<'a> = &'a str;
 }
 
+#[derive(Debug)]
 pub struct OwnedText;
 
 impl TextOwnership for OwnedText {
     type Text<'a> = String;
 }
 
-pub trait ValueOwnership {
-    type DirectValue<V>;
-    type IndirectValue<V>;
+pub trait ValueOwnership: Debug {
+    type DirectValue<V: Debug>: Debug;
+    type IndirectValue<V: Debug>: Debug;
 }
 
+#[derive(Debug)]
 pub struct OwnedValues;
 
 impl ValueOwnership for OwnedValues {
-    type DirectValue<V> = V;
-    type IndirectValue<V> = Box<V>;
+    type DirectValue<V: Debug> = V;
+    type IndirectValue<V: Debug> = Box<V>;
 }
 
+#[derive(Debug)]
 pub struct BorrowedValues;
 
 impl ValueOwnership for BorrowedValues {
-    type DirectValue<V> = Rc<V>;
-    type IndirectValue<V> = Rc<V>;
+    type DirectValue<V: Debug> = Rc<V>;
+    type IndirectValue<V: Debug> = Rc<V>;
 }
 
 #[derive(Debug)]
@@ -44,7 +49,6 @@ pub enum AST<'a, TO: TextOwnership, VO: ValueOwnership> {
     SpecialOperation(SpecialOperation<'a, TO, Self, ValueKind>),
 }
 
-#[derive(Debug)]
 pub enum Value<'a, TO: TextOwnership, VO: ValueOwnership> {
     I64(i64),
     U64(u64),
@@ -61,6 +65,28 @@ pub enum Value<'a, TO: TextOwnership, VO: ValueOwnership> {
     Jhandle(()),
     Jexit(()),
     Fhandle(()),
+}
+
+impl<'a, TO: TextOwnership, VO: ValueOwnership> Debug for Value<'a, TO, VO> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::I64(v) => f.debug_tuple("I64").field(v).finish(),
+            Value::U64(v) => f.debug_tuple("U64").field(v).finish(),
+            Value::F64(v) => f.debug_tuple("F64").field(v).finish(),
+            Value::BOOL(v) => f.debug_tuple("BOOL").field(v).finish(),
+            Value::STRING(v) => f.debug_tuple("STRING").field(v).finish(),
+            Value::UNIT => f.write_str("UNIT"),
+            Value::Option(v) => f.debug_tuple("Option").field(v).finish(),
+            Value::Result(v) => f.debug_tuple("Result").field(v).finish(),
+            Value::List(v) => f.debug_tuple("List").field(v).finish(),
+            Value::Map(v) => f.debug_tuple("Map").field(v).finish(),
+            Value::Function(v) => f.debug_tuple("Function").field(v).finish(),
+            Value::Jcmd(v) => f.debug_tuple("Jcmd").field(v).finish(),
+            Value::Jhandle(v) => f.debug_tuple("Jhandle").field(v).finish(),
+            Value::Jexit(v) => f.debug_tuple("Jexit").field(v).finish(),
+            Value::Fhandle(v) => f.debug_tuple("Fhandle").field(v).finish(),
+        }
+    }
 }
 
 impl<'a, TO: TextOwnership, VO: ValueOwnership> Value<'a, TO, VO> {

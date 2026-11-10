@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::ast::{AST, BOperation, Control, VOperation, Value, ValueKind};
+use crate::ast::{AST, OwnedText, OwnedValues, TextOwnership, Value, ValueKind, ValueOwnership};
 
 pub struct BindingTable(Vec<Scope>);
 
@@ -98,14 +98,14 @@ impl Scope {
 pub enum Variable {
     Declared,
     TypeBound(ValueKind),
-    Value(Rc<Value<'a>>),
+    Value(Rc<Value<'static, OwnedText, OwnedValues>>),
 }
 
 #[derive(Debug)]
 pub enum FatalEvaluationError {}
 
-pub fn evaluate<'a>(
-    ast: AST<'a>,
+pub fn evaluate<'a, TO: TextOwnership, VO: ValueOwnership>(
+    ast: AST<'a, TO, VO>,
     scope_registry: &mut ScopeRegistry,
 ) -> Result<Rc<Value<'a>>, FatalEvaluationError> {
     match ast {
