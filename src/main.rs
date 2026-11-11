@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use kemsh::{
-    evaluation::{ScopeRegistry, evaluate},
+    evaluation::{egv, evaluate},
     lexer::{
         Lexer, StandardDelimiterLexer, StandardEscapedStringLexer, StandardLexemeLexer,
         StandardNumberLexer, StandardRawStringLexer, StandardShellLexer,
@@ -20,10 +20,9 @@ fn main() {
         StandardEscapedStringLexer,
         StandardShellLexer,
     >::new(inp.as_str());
-    let mut scope = ScopeRegistry::new();
     for exp_res in Parser::new(lexer).into_iter() {
         if let Ok(exp) = exp_res {
-            println!("{:?}", evaluate(exp, &mut scope));
+            println!("{:?}", evaluate(&exp, egv));
         } else {
             println!("{exp_res:#?}");
         }

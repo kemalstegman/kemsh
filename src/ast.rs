@@ -1,5 +1,6 @@
 pub trait TextOwnership: std::fmt::Debug {
     type Text<'a>: std::fmt::Debug;
+    fn as_str<'a>(string: &'a Self::Text<'_>) -> &'a str;
 }
 
 #[derive(Debug)]
@@ -7,6 +8,9 @@ pub struct SourceBorrowedText;
 
 impl TextOwnership for SourceBorrowedText {
     type Text<'a> = &'a str;
+    fn as_str<'a>(string: &'a Self::Text<'_>) -> &'a str {
+        string
+    }
 }
 
 #[derive(Debug)]
@@ -14,6 +18,9 @@ pub struct OwnedText;
 
 impl TextOwnership for OwnedText {
     type Text<'a> = String;
+    fn as_str<'a>(string: &'a Self::Text<'_>) -> &'a str {
+        string.as_str()
+    }
 }
 
 #[derive(Debug)]

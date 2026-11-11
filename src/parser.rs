@@ -391,7 +391,7 @@ where
                     rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 })))
             }
-            NullDenotation::NONE => Ok(AST::Option(None)),
+            NullDenotation::NONE => Ok(AST::NONE),
             NullDenotation::ChangeDirectory => {
                 let tok = self
                     .iter
