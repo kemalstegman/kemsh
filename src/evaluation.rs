@@ -255,3 +255,43 @@ pub fn evaluate_boperation<'a>(
         BOperation::Shell(_) => todo!(),
     }
 }
+
+// pub enum Value<'a, TO: TextOwnership> {
+//     I64(i64),
+//     U64(u64),
+//     F64(f64),
+//     BOOL(bool),
+//     STRING(TO::Text<'a>),
+//     UNIT,
+//     Option(Option<Box<Self>>),
+//     Result(Result<Box<Self>, Box<Self>>),
+//     List(Vec<Self>),
+//     Map(Vec<(TO::Text<'a>, Self)>),
+//     Function(Box<(Vec<(TO::Text<'a>,)>, Vec<AST<'a, TO>>)>),
+//     Jcmd(()),
+//     Jhandle(()),
+//     Jexit(()),
+//     Fhandle(()),
+// }
+//
+// impl<'a, TO: TextOwnership> Value<'a, TO> {
+//     pub fn kind(&self) -> ValueKind {
+//         match self {
+//             Value::I64(_) => ValueKind::I64,
+//             Value::U64(_) => ValueKind::U64,
+//             Value::F64(_) => ValueKind::F64,
+//             Value::BOOL(_) => ValueKind::BOOL,
+//             Value::STRING(_) => ValueKind::STRING,
+//             Value::UNIT => ValueKind::UNIT,
+//             Value::Option(_) => ValueKind::Option,
+//             Value::Result(_) => ValueKind::Result,
+//             Value::List(_) => ValueKind::List,
+//             Value::Map(_) => ValueKind::Map,
+//             Value::Function(_) => ValueKind::Function,
+//             Value::Jcmd(_) => ValueKind::Jcmd,
+//             Value::Jhandle(_) => ValueKind::Jhandle,
+//             Value::Jexit(_) => ValueKind::Jexit,
+//             Value::Fhandle(_) => ValueKind::Fhandle,
+//         }
+//     }
+// }

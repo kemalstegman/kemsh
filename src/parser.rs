@@ -1,7 +1,7 @@
 use std::iter::FusedIterator;
 
 use crate::{
-    ast::{AST, IOperation, POperation, SourceBorrowedText, SpecialOperation, Value, ValueKind},
+    ast::{AST, IOperation, POperation, SourceBorrowedText, SpecialOperation, ValueKind},
     lexer::{
         Delimiter,
         Lexeme::{self, Identifier},
@@ -332,13 +332,13 @@ where
         ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
     > {
         match nud {
-            NullDenotation::BOOL(boolean) => Ok(AST::Value(Value::BOOL(boolean))),
-            NullDenotation::I64(number) => Ok(AST::Value(Value::I64(number))),
-            NullDenotation::U64(number) => Ok(AST::Value(Value::U64(number))),
-            NullDenotation::F64(number) => Ok(AST::Value(Value::F64(number))),
-            NullDenotation::STRING(string) => Ok(AST::Value(Value::STRING(string))),
+            NullDenotation::BOOL(boolean) => Ok(AST::BOOL(boolean)),
+            NullDenotation::I64(number) => Ok(AST::I64(number)),
+            NullDenotation::U64(number) => Ok(AST::U64(number)),
+            NullDenotation::F64(number) => Ok(AST::F64(number)),
+            NullDenotation::STRING(string) => Ok(AST::STRING(string)),
             NullDenotation::IDENTIFIER(identifier) => Ok(AST::Identifier(identifier)),
-            NullDenotation::UNIT => Ok(AST::Value(Value::UNIT)),
+            NullDenotation::UNIT => Ok(AST::UNIT),
             NullDenotation::Negate => {
                 let tok = self
                     .iter
@@ -349,7 +349,7 @@ where
                     Token::Number(Number::Signed(number_string))
                     | Token::Number(Number::Integer(number_string)) => {
                         match i64::from_str_radix(&format!("-{number_string}"), 10) {
-                            Ok(number) => Ok(AST::Value(Value::I64(number))),
+                            Ok(number) => Ok(AST::I64(number)),
                             Err(e) => Err(ParserError::Fatal(FatalParserError::NUD(
                                 NullDenotationError::IntError(e),
                             ))),
@@ -391,7 +391,7 @@ where
                     rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
                 })))
             }
-            NullDenotation::NONE => Ok(AST::Value(Value::Option(None))),
+            NullDenotation::NONE => Ok(AST::Option(None)),
             NullDenotation::ChangeDirectory => {
                 let tok = self
                     .iter
