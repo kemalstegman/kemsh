@@ -1,10 +1,7 @@
 use std::iter::FusedIterator;
 
 use crate::{
-    ast::{
-        AST, IOperation, OwnedValues, POperation, SourceBorrowedText, SpecialOperation, Value,
-        ValueKind,
-    },
+    ast::{AST, IOperation, POperation, SourceBorrowedText, SpecialOperation, Value, ValueKind},
     lexer::{
         Delimiter,
         Lexeme::{self, Identifier},
@@ -308,7 +305,7 @@ where
         &mut self,
     ) -> Option<
         Result<
-            AST<'a, SourceBorrowedText, OwnedValues>,
+            AST<'a, SourceBorrowedText>,
             ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
         >,
     > {
@@ -331,7 +328,7 @@ where
         nud: NullDenotation<'a>,
         depth: usize,
     ) -> Result<
-        AST<'a, SourceBorrowedText, OwnedValues>,
+        AST<'a, SourceBorrowedText>,
         ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
     > {
         match nud {
@@ -571,11 +568,11 @@ where
     }
     fn parse_led(
         &mut self,
-        lhs: AST<'a, SourceBorrowedText, OwnedValues>,
+        lhs: AST<'a, SourceBorrowedText>,
         led: LeftDenotation,
         depth: usize,
     ) -> Result<
-        AST<'a, SourceBorrowedText, OwnedValues>,
+        AST<'a, SourceBorrowedText>,
         ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
     > {
         match led {
@@ -677,7 +674,7 @@ where
         precedence: DenotationPrecedence,
         depth: usize,
     ) -> Result<
-        AST<'a, SourceBorrowedText, OwnedValues>,
+        AST<'a, SourceBorrowedText>,
         ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
     > {
         if depth > 1000 {
@@ -714,7 +711,7 @@ where
     I: Iterator<Item = Result<PToken<'a>, E>>,
 {
     type Item = Result<
-        AST<'a, SourceBorrowedText, OwnedValues>,
+        AST<'a, SourceBorrowedText>,
         ParserError<E, FatalParserError<'a, NullDenotationError<'a>>>,
     >;
     fn next(&mut self) -> Option<Self::Item> {

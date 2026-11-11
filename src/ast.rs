@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::rc::Rc;
 
 pub trait TextOwnership: Debug {
     type Text<'a>: Debug;
@@ -19,55 +18,34 @@ impl TextOwnership for OwnedText {
     type Text<'a> = String;
 }
 
-pub trait ValueOwnership: Debug {
-    type DirectValue<V: Debug>: Debug;
-    type IndirectValue<V: Debug>: Debug;
-}
-
 #[derive(Debug)]
-pub struct OwnedValues;
-
-impl ValueOwnership for OwnedValues {
-    type DirectValue<V: Debug> = V;
-    type IndirectValue<V: Debug> = Box<V>;
-}
-
-#[derive(Debug)]
-pub struct BorrowedValues;
-
-impl ValueOwnership for BorrowedValues {
-    type DirectValue<V: Debug> = Rc<V>;
-    type IndirectValue<V: Debug> = Rc<V>;
-}
-
-#[derive(Debug)]
-pub enum AST<'a, TO: TextOwnership, VO: ValueOwnership> {
+pub enum AST<'a, TO: TextOwnership> {
     Identifier(TO::Text<'a>),
-    Value(VO::DirectValue<Value<'a, TO, VO>>),
+    Value(Value<'a, TO>),
     POperation(Box<POperation<Self>>),
     IOperation(Box<IOperation<Self>>),
     SpecialOperation(SpecialOperation<'a, TO, Self, ValueKind>),
 }
 
-pub enum Value<'a, TO: TextOwnership, VO: ValueOwnership> {
+pub enum Value<'a, TO: TextOwnership> {
     I64(i64),
     U64(u64),
     F64(f64),
     BOOL(bool),
     STRING(TO::Text<'a>),
     UNIT,
-    Option(Option<VO::IndirectValue<Self>>),
-    Result(Result<VO::IndirectValue<Self>, VO::IndirectValue<Self>>),
-    List(Vec<VO::DirectValue<Self>>),
-    Map(Vec<(TO::Text<'a>, VO::DirectValue<Self>)>),
-    Function(Box<(Vec<(TO::Text<'a>,)>, Vec<AST<'a, TO, VO>>)>),
+    Option(Option<Box<Self>>),
+    Result(Result<Box<Self>, Box<Self>>),
+    List(Vec<Self>),
+    Map(Vec<(TO::Text<'a>, Self)>),
+    Function(Box<(Vec<(TO::Text<'a>,)>, Vec<AST<'a, TO>>)>),
     Jcmd(()),
     Jhandle(()),
     Jexit(()),
     Fhandle(()),
 }
 
-impl<'a, TO: TextOwnership, VO: ValueOwnership> Debug for Value<'a, TO, VO> {
+impl<'a, TO: TextOwnership> Debug for Value<'a, TO> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::I64(v) => f.debug_tuple("I64").field(v).finish(),
@@ -89,7 +67,7 @@ impl<'a, TO: TextOwnership, VO: ValueOwnership> Debug for Value<'a, TO, VO> {
     }
 }
 
-impl<'a, TO: TextOwnership, VO: ValueOwnership> Value<'a, TO, VO> {
+impl<'a, TO: TextOwnership> Value<'a, TO> {
     pub fn kind(&self) -> ValueKind {
         match self {
             Value::I64(_) => ValueKind::I64,
