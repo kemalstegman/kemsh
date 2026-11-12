@@ -42,6 +42,7 @@ enum NullDenotation<'a> {
     ScopeOpen,
     ParenthesisOpen,
     Shell(&'a str),
+    Not,
 }
 
 #[derive(Debug)]
@@ -89,7 +90,7 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
                 Err(e) => Err(NullDenotationError::FloatError(e)),
             },
             Token::RawString(string) => Ok(NullDenotation::STRING(string)),
-            Token::EscapedString(_) => todo!(),
+            Token::EscapedString(()) => todo!(),
             Token::Shell(shell) => Ok(NullDenotation::Shell(shell)),
             Token::Lexeme(Lexeme::LexUnit) => Ok(NullDenotation::UNIT),
             Token::Lexeme(Lexeme::LexNone) => Ok(NullDenotation::NONE),
@@ -113,6 +114,7 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
             Token::Lexeme(Lexeme::LexFn) => Ok(NullDenotation::Fn),
             // delimiters
             Token::Delimiter(Delimiter::HyphenMinus) => Ok(NullDenotation::Negate),
+            Token::Delimiter(Delimiter::Bang) => Ok(NullDenotation::Not),
             Token::Delimiter(Delimiter::OpenBrace) => Ok(NullDenotation::ScopeOpen),
             Token::Delimiter(Delimiter::OpenSquareBracket) => Ok(NullDenotation::ListOpen),
             Token::Delimiter(Delimiter::OpenParenthesis) => Ok(NullDenotation::ParenthesisOpen),
@@ -250,6 +252,7 @@ impl<'a> TryFrom<&PToken<'a>> for LeftDenotation {
             | Token::Delimiter(Delimiter::Semicolon)
             | Token::Delimiter(Delimiter::Colon)
             | Token::Delimiter(Delimiter::BackSlash)
+            | Token::Delimiter(Delimiter::Bang)
             | Token::EscapedString(_)
             | Token::Shell(_) => Err(()),
         }
@@ -339,6 +342,16 @@ where
             NullDenotation::STRING(string) => Ok(AST::STRING(string)),
             NullDenotation::IDENTIFIER(identifier) => Ok(AST::Identifier(identifier)),
             NullDenotation::UNIT => Ok(AST::UNIT),
+            NullDenotation::Not => {
+                let tok = self
+                    .iter
+                    .next()
+                    .ok_or(ParserError::Incomplete)?
+                    .map_err(|e| ParserError::Lexer(e))?;
+                Ok(AST::POperation(Box::new(POperation::Not {
+                    rhs: self.parse_expression(tok, DenotationPrecedence::Prefix, depth)?,
+                })))
+            }
             NullDenotation::Negate => {
                 let tok = self
                     .iter

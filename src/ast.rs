@@ -83,6 +83,7 @@ pub enum POperation<'a, TO: TextOwnership> {
     Spawn { rhs: AST<'a, TO> },
     Process { rhs: AST<'a, TO> },
     Wait { rhs: AST<'a, TO> },
+    Not { rhs: AST<'a, TO> },
 }
 
 #[derive(Debug)]

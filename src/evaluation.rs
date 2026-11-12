@@ -204,6 +204,7 @@ impl Value {
     }
 }
 
+#[derive(Debug)]
 pub enum ValueRef<'a> {
     I64(i64),
     U64(u64),
@@ -276,6 +277,7 @@ impl<'a> EvalValue<'a> {
 #[derive(Debug)]
 pub enum EvaluationError {
     BindingError(BindingError),
+    G(String),
 }
 
 pub fn evaluate<'a, TO: TextOwnership>(
@@ -310,10 +312,22 @@ pub fn evaluate<'a, TO: TextOwnership>(
             POperation::Some { rhs } => Ok(EvalValue::Owned(Value::Option(Some(
                 evaluate(rhs, environment)?.convert_own_life_shared(),
             )))),
+            POperation::Not { rhs } => match evaluate(rhs, environment)?.as_value_ref() {
+                ValueRef::BOOL(boolean) => Ok(EvalValue::Owned(Value::BOOL(boolean.not()))),
+                value => Err(EvaluationError::G(format!(
+                    "invalid not operation on value type {:?}: NOT {:?}",
+                    value.r#type(),
+                    value
+                ))),
+            },
             POperation::Negate { rhs } => match evaluate(rhs, environment)?.as_value_ref() {
                 ValueRef::I64(num) => Ok(EvalValue::Owned(Value::I64(num.neg()))),
                 ValueRef::F64(num) => Ok(EvalValue::Owned(Value::F64(num.neg()))),
-                _ => todo!(),
+                value => Err(EvaluationError::G(format!(
+                    "invalid negation operation on value type {:?}: NEGATE {:?}",
+                    value.r#type(),
+                    value
+                ))),
             },
             POperation::ChangeDirectory { rhs } => todo!(),
             POperation::Run { rhs } => todo!(),
@@ -359,7 +373,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                     (ValueRef::STRING(lhs), ValueRef::STRING(rhs)) => {
                         Ok(EvalValue::Owned(Value::STRING(lhs.to_owned() + rhs)))
                     }
-                    _ => todo!(),
+                    (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                        "invalid addition operation on lhs value type {:?} and rhs value type {:?}: {:?} ADD {:?}",
+                        lvalue.r#type(),
+                        rvalue.r#type(),
+                        lvalue,
+                        rvalue
+                    ))),
                 }
             }
             IOperation::Subtract { lhs, rhs } => match (
@@ -375,7 +395,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 (ValueRef::F64(lhs), ValueRef::F64(rhs)) => {
                     Ok(EvalValue::Owned(Value::F64(lhs - rhs)))
                 }
-                _ => todo!(),
+                (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                    "invalid subtraction operation on lhs value type {:?} and rhs value type {:?}: {:?} SUBTRACT {:?}",
+                    lvalue.r#type(),
+                    rvalue.r#type(),
+                    lvalue,
+                    rvalue
+                ))),
             },
             IOperation::Multiply { lhs, rhs } => match (
                 evaluate(lhs, environment)?.as_value_ref(),
@@ -390,7 +416,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 (ValueRef::F64(lhs), ValueRef::F64(rhs)) => {
                     Ok(EvalValue::Owned(Value::F64(lhs * rhs)))
                 }
-                _ => todo!(),
+                (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                    "invalid multiplication operation on lhs value type {:?} and rhs value type {:?}: {:?} MULTIPLY {:?}",
+                    lvalue.r#type(),
+                    rvalue.r#type(),
+                    lvalue,
+                    rvalue
+                ))),
             },
             IOperation::Divide { lhs, rhs } => match (
                 evaluate(lhs, environment)?.as_value_ref(),
@@ -405,7 +437,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 (ValueRef::F64(lhs), ValueRef::F64(rhs)) => {
                     Ok(EvalValue::Owned(Value::F64(lhs / rhs)))
                 }
-                _ => todo!(),
+                (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                    "invalid division operation on lhs value type {:?} and rhs value type {:?}: {:?} DIVIDE {:?}",
+                    lvalue.r#type(),
+                    rvalue.r#type(),
+                    lvalue,
+                    rvalue
+                ))),
             },
             IOperation::LessThan { lhs, rhs } => match (
                 evaluate(lhs, environment)?.as_value_ref(),
@@ -420,7 +458,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 (ValueRef::F64(lhs), ValueRef::F64(rhs)) => {
                     Ok(EvalValue::Owned(Value::BOOL(lhs < rhs)))
                 }
-                _ => todo!(),
+                (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                    "invalid less than operation on lhs value type {:?} and rhs value type {:?}: {:?} LESS THAN {:?}",
+                    lvalue.r#type(),
+                    rvalue.r#type(),
+                    lvalue,
+                    rvalue
+                ))),
             },
             IOperation::GreaterThan { lhs, rhs } => match (
                 evaluate(lhs, environment)?.as_value_ref(),
@@ -435,7 +479,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 (ValueRef::F64(lhs), ValueRef::F64(rhs)) => {
                     Ok(EvalValue::Owned(Value::BOOL(lhs > rhs)))
                 }
-                _ => todo!(),
+                (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                    "invalid greater than operation on lhs value type {:?} and rhs value type {:?}: {:?} GREATER THAN {:?}",
+                    lvalue.r#type(),
+                    rvalue.r#type(),
+                    lvalue,
+                    rvalue
+                ))),
             },
             IOperation::Equal { lhs, rhs } => match (
                 evaluate(lhs, environment)?.as_value_ref(),
@@ -456,7 +506,13 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 (ValueRef::BOOL(lhs), ValueRef::BOOL(rhs)) => {
                     Ok(EvalValue::Owned(Value::BOOL(lhs == rhs)))
                 }
-                _ => todo!(),
+                (lvalue, rvalue) => Err(EvaluationError::G(format!(
+                    "invalid equals operation on lhs value type {:?} and rhs value type {:?}: {:?} EQUALS {:?}",
+                    lvalue.r#type(),
+                    rvalue.r#type(),
+                    lvalue,
+                    rvalue
+                ))),
             },
             IOperation::Index { lhs, rhs } => todo!(),
         },

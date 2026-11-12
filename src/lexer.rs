@@ -164,6 +164,7 @@ impl DelimiterLexer for StandardDelimiterLexer {
             '/' => (1, Delimiter::ForwardSlash),
             '\\' => (1, Delimiter::BackSlash),
             '*' => (1, Delimiter::Asterisk),
+            '!' => (1, Delimiter::Bang),
             ch => return Err(LexerError::Fatal(ch)),
         };
         *lexable = &lexable[bytes..];
@@ -386,6 +387,7 @@ pub enum Delimiter {
     ForwardSlash,       // /
     BackSlash,          // \
     Asterisk,           // *
+    Bang,               // !
     // multi-character
     OpenBraceBracket,  // {[
     CloseBracketBrace, // ]}
