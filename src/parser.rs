@@ -664,7 +664,25 @@ where
                 let rhs = self.parse_expression(tok, DenotationPrecedence::Compare, depth)?;
                 Ok(AST::IOperation(Box::new(IOperation::Equal { lhs, rhs })))
             }
-            LeftDenotation::Assign => todo!(),
+            LeftDenotation::Assign => match lhs {
+                AST::Identifier(identifier) => {
+                    let tok = self
+                        .iter
+                        .next()
+                        .ok_or(ParserError::Incomplete)?
+                        .map_err(|e| ParserError::Lexer(e))?;
+                    let expression = Box::new(self.parse_expression(
+                        tok,
+                        DenotationPrecedence::AssignRight,
+                        depth,
+                    )?);
+                    Ok(AST::SpecialOperation(SpecialOperation::Assign {
+                        identifier,
+                        expression,
+                    }))
+                }
+                _ => todo!(),
+            },
             LeftDenotation::Field => todo!(),
         }
     }

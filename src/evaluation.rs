@@ -1,9 +1,153 @@
 use std::{
+    collections::HashMap,
     ops::{Neg, Not},
     rc::Rc,
 };
 
 use crate::ast::{AST, IOperation, POperation, SpecialOperation, TextOwnership, ValueKind};
+
+pub struct Environment {
+    bindings: Bindings,
+}
+impl Environment {
+    pub fn new() -> Self {
+        Self {
+            bindings: Bindings::new_with_default_globals(),
+        }
+    }
+}
+
+pub struct Bindings(Vec<BindingScope>);
+
+impl Bindings {
+    pub fn new_with_default_globals() -> Self {
+        Self(vec![BindingScope::new_with_default_globals()])
+    }
+    pub fn declare(&mut self, identifier: String, variable: Variable) -> Result<(), BindingError> {
+        self.0
+            .last_mut()
+            .ok_or(BindingError::NoBindingScopes)?
+            .declare(identifier, variable)
+    }
+    pub fn drop(&mut self, identifier: &str) -> Result<Variable, BindingError> {
+        self.0
+            .last_mut()
+            .ok_or(BindingError::NoBindingScopes)?
+            .drop(identifier)
+    }
+    pub fn assign(
+        &mut self,
+        identifier: &str,
+        value: Rc<Value>,
+    ) -> Result<Option<Rc<Value>>, BindingError> {
+        if self.0.len() == 0 {
+            Err(BindingError::NoBindingScopes)
+        } else {
+            self.0
+                .iter_mut()
+                .rev()
+                .filter(|scope| scope.is_declared(identifier))
+                .next()
+                .ok_or(BindingError::AssignNotDeclared)?
+                .assign(identifier, value)
+        }
+    }
+    pub fn get(&self, identifier: &str) -> Result<&Rc<Value>, BindingError> {
+        if self.0.len() == 0 {
+            Err(BindingError::NoBindingScopes)
+        } else {
+            self.0
+                .iter()
+                .rev()
+                .map(|scope| scope.get(identifier))
+                .find_map(Result::ok)
+                .ok_or(BindingError::GetNotDeclared)
+        }
+    }
+}
+
+pub struct BindingScope(HashMap<String, Variable>);
+
+impl BindingScope {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+    pub fn new_with_default_globals() -> Self {
+        let mut binding_scope = BindingScope::new();
+        binding_scope
+    }
+    pub fn declare(&mut self, identifier: String, variable: Variable) -> Result<(), BindingError> {
+        use std::collections::hash_map::Entry;
+        match self.0.entry(identifier) {
+            Entry::Vacant(entry) => {
+                entry.insert_entry(variable);
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(BindingError::DeclareAlreadyDeclared),
+        }
+    }
+    pub fn drop(&mut self, identifier: &str) -> Result<Variable, BindingError> {
+        self.0
+            .remove(identifier)
+            .ok_or(BindingError::DropNotDeclared)
+    }
+    pub fn is_declared(&self, identifier: &str) -> bool {
+        self.0.contains_key(identifier)
+    }
+    pub fn assign(
+        &mut self,
+        identifier: &str,
+        value: Rc<Value>,
+    ) -> Result<Option<Rc<Value>>, BindingError> {
+        match self.0.get_mut(identifier) {
+            None => Err(BindingError::AssignNotDeclared),
+            Some(variable) => variable
+                .assign(value)
+                .map_err(|()| BindingError::AssignVariableDifferentType),
+        }
+    }
+    pub fn get(&self, identifier: &str) -> Result<&Rc<Value>, BindingError> {
+        match self.0.get(identifier).ok_or(BindingError::GetNotDeclared)? {
+            Variable::Declared => Err(BindingError::GetVariableDeclared),
+            Variable::Typed(_) => Err(BindingError::GetVariableTyped),
+            Variable::Valued(value) => Ok(&value),
+        }
+    }
+}
+
+pub enum Variable {
+    Declared,
+    Typed(ValueKind),
+    Valued(Rc<Value>),
+}
+
+#[derive(Debug)]
+pub enum BindingError {
+    DeclareAlreadyDeclared,
+    DropNotDeclared,
+    AssignNotDeclared,
+    AssignVariableDifferentType,
+    LetVariableDifferentType,
+    GetNotDeclared,
+    GetVariableDeclared,
+    GetVariableTyped,
+    NoBindingScopes,
+}
+
+impl Variable {
+    fn assign(&mut self, assign_value: Rc<Value>) -> Result<Option<Rc<Value>>, ()> {
+        match self {
+            Variable::Declared => (),
+            Variable::Typed(r#type) if *r#type == assign_value.r#type() => (),
+            Variable::Valued(value) if value.r#type() == assign_value.r#type() => {
+                return Ok(Some(std::mem::replace(value, assign_value)));
+            }
+            Variable::Typed(_) | Variable::Valued(_) => return Err(()),
+        }
+        *self = Variable::Valued(assign_value);
+        Ok(None)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -26,6 +170,21 @@ pub enum Value {
 }
 
 impl Value {
+    fn r#type(&self) -> ValueKind {
+        match self {
+            Value::I64(_) => ValueKind::I64,
+            Value::U64(_) => ValueKind::U64,
+            Value::F64(_) => ValueKind::F64,
+            Value::BOOL(_) => ValueKind::BOOL,
+            Value::STRING(_) => ValueKind::STRING,
+            Value::UNIT => ValueKind::UNIT,
+            Value::Option(_) => ValueKind::Option,
+            Value::Result(_) => ValueKind::Result,
+            Value::List(_) => ValueKind::List,
+            Value::Map(_) => ValueKind::Map,
+            Value::Function => ValueKind::Function,
+        }
+    }
     fn as_value_ref<'a>(&'a self) -> ValueRef<'a> {
         match self {
             Value::I64(num) => ValueRef::I64(*num),
@@ -64,6 +223,24 @@ pub enum ValueRef<'a> {
     // Fhandle,
 }
 
+impl<'a> ValueRef<'a> {
+    fn r#type(&self) -> ValueKind {
+        match self {
+            ValueRef::I64(_) => ValueKind::I64,
+            ValueRef::U64(_) => ValueKind::U64,
+            ValueRef::F64(_) => ValueKind::F64,
+            ValueRef::BOOL(_) => ValueKind::BOOL,
+            ValueRef::STRING(_) => ValueKind::STRING,
+            ValueRef::UNIT => ValueKind::UNIT,
+            ValueRef::Option(_) => ValueKind::Option,
+            ValueRef::Result(_) => ValueKind::Result,
+            ValueRef::List(_) => ValueKind::List,
+            ValueRef::Map(_) => ValueKind::Map,
+            ValueRef::Function => ValueKind::Function,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum EvalValue<'a> {
     Owned(Value),
@@ -96,14 +273,15 @@ impl<'a> EvalValue<'a> {
     }
 }
 
-pub fn egv(_: &str) -> Rc<Value> {
-    Rc::new(Value::UNIT)
+#[derive(Debug)]
+pub enum EvaluationError {
+    BindingError(BindingError),
 }
 
 pub fn evaluate<'a, TO: TextOwnership>(
     ast: &'a AST<'_, TO>,
-    env_get_variable: fn(&str) -> Rc<Value>,
-) -> Result<EvalValue<'a>, ()> {
+    environment: &mut Environment,
+) -> Result<EvalValue<'a>, EvaluationError> {
     match ast {
         AST::I64(num) => Ok(EvalValue::Owned(Value::I64(*num))),
         AST::U64(num) => Ok(EvalValue::Owned(Value::U64(*num))),
@@ -112,24 +290,27 @@ pub fn evaluate<'a, TO: TextOwnership>(
         AST::STRING(string) => Ok(EvalValue::BorrowedString(TO::as_str(string))),
         AST::UNIT => Ok(EvalValue::Owned(Value::UNIT)),
         AST::NONE => Ok(EvalValue::Owned(Value::Option(None))),
-        AST::Identifier(identifier) => {
-            Ok(EvalValue::Shared(env_get_variable(TO::as_str(identifier))))
-        }
+        AST::Identifier(identifier) => Ok(EvalValue::Shared(Rc::clone(
+            environment
+                .bindings
+                .get(TO::as_str(identifier))
+                .map_err(|e| EvaluationError::BindingError(e))?,
+        ))),
         AST::POperation(operation) => match &**operation {
             POperation::Ok { rhs } => Ok(EvalValue::Owned(Value::Result(Ok(evaluate(
                 rhs,
-                env_get_variable,
+                environment,
             )?
             .convert_own_life_shared())))),
             POperation::Err { rhs } => Ok(EvalValue::Owned(Value::Result(Err(evaluate(
                 rhs,
-                env_get_variable,
+                environment,
             )?
             .convert_own_life_shared())))),
             POperation::Some { rhs } => Ok(EvalValue::Owned(Value::Option(Some(
-                evaluate(rhs, env_get_variable)?.convert_own_life_shared(),
+                evaluate(rhs, environment)?.convert_own_life_shared(),
             )))),
-            POperation::Negate { rhs } => match evaluate(rhs, env_get_variable)?.as_value_ref() {
+            POperation::Negate { rhs } => match evaluate(rhs, environment)?.as_value_ref() {
                 ValueRef::I64(num) => Ok(EvalValue::Owned(Value::I64(num.neg()))),
                 ValueRef::F64(num) => Ok(EvalValue::Owned(Value::F64(num.neg()))),
                 _ => todo!(),
@@ -142,8 +323,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
         },
         AST::IOperation(operation) => match &**operation {
             IOperation::Add { lhs, rhs } => {
-                let mut lhs = evaluate(lhs, env_get_variable)?;
-                let mut rhs = evaluate(rhs, env_get_variable)?;
+                let mut lhs = evaluate(lhs, environment)?;
+                let mut rhs = evaluate(rhs, environment)?;
                 let (lhs, rhs) = match (lhs.as_mut_owned_or_ref(), rhs.as_mut_owned_or_ref()) {
                     (Ok(Value::STRING(lhs)), Ok(Value::STRING(rhs))) => {
                         lhs.push_str(rhs);
@@ -182,8 +363,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 }
             }
             IOperation::Subtract { lhs, rhs } => match (
-                evaluate(lhs, env_get_variable)?.as_value_ref(),
-                evaluate(rhs, env_get_variable)?.as_value_ref(),
+                evaluate(lhs, environment)?.as_value_ref(),
+                evaluate(rhs, environment)?.as_value_ref(),
             ) {
                 (ValueRef::I64(lhs), ValueRef::I64(rhs)) => {
                     Ok(EvalValue::Owned(Value::I64(lhs - rhs)))
@@ -197,8 +378,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 _ => todo!(),
             },
             IOperation::Multiply { lhs, rhs } => match (
-                evaluate(lhs, env_get_variable)?.as_value_ref(),
-                evaluate(rhs, env_get_variable)?.as_value_ref(),
+                evaluate(lhs, environment)?.as_value_ref(),
+                evaluate(rhs, environment)?.as_value_ref(),
             ) {
                 (ValueRef::I64(lhs), ValueRef::I64(rhs)) => {
                     Ok(EvalValue::Owned(Value::I64(lhs * rhs)))
@@ -212,8 +393,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 _ => todo!(),
             },
             IOperation::Divide { lhs, rhs } => match (
-                evaluate(lhs, env_get_variable)?.as_value_ref(),
-                evaluate(rhs, env_get_variable)?.as_value_ref(),
+                evaluate(lhs, environment)?.as_value_ref(),
+                evaluate(rhs, environment)?.as_value_ref(),
             ) {
                 (ValueRef::I64(lhs), ValueRef::I64(rhs)) => {
                     Ok(EvalValue::Owned(Value::I64(lhs / rhs)))
@@ -227,8 +408,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 _ => todo!(),
             },
             IOperation::LessThan { lhs, rhs } => match (
-                evaluate(lhs, env_get_variable)?.as_value_ref(),
-                evaluate(rhs, env_get_variable)?.as_value_ref(),
+                evaluate(lhs, environment)?.as_value_ref(),
+                evaluate(rhs, environment)?.as_value_ref(),
             ) {
                 (ValueRef::I64(lhs), ValueRef::I64(rhs)) => {
                     Ok(EvalValue::Owned(Value::BOOL(lhs < rhs)))
@@ -242,8 +423,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 _ => todo!(),
             },
             IOperation::GreaterThan { lhs, rhs } => match (
-                evaluate(lhs, env_get_variable)?.as_value_ref(),
-                evaluate(rhs, env_get_variable)?.as_value_ref(),
+                evaluate(lhs, environment)?.as_value_ref(),
+                evaluate(rhs, environment)?.as_value_ref(),
             ) {
                 (ValueRef::I64(lhs), ValueRef::I64(rhs)) => {
                     Ok(EvalValue::Owned(Value::BOOL(lhs > rhs)))
@@ -257,8 +438,8 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 _ => todo!(),
             },
             IOperation::Equal { lhs, rhs } => match (
-                evaluate(lhs, env_get_variable)?.as_value_ref(),
-                evaluate(rhs, env_get_variable)?.as_value_ref(),
+                evaluate(lhs, environment)?.as_value_ref(),
+                evaluate(rhs, environment)?.as_value_ref(),
             ) {
                 (ValueRef::I64(lhs), ValueRef::I64(rhs)) => {
                     Ok(EvalValue::Owned(Value::BOOL(lhs == rhs)))
@@ -280,7 +461,10 @@ pub fn evaluate<'a, TO: TextOwnership>(
             IOperation::Index { lhs, rhs } => todo!(),
         },
         AST::SpecialOperation(operation) => match &*operation {
-            SpecialOperation::Assign(()) => todo!(),
+            SpecialOperation::Assign {
+                identifier,
+                expression,
+            } => todo!(),
             SpecialOperation::List(list) => todo!(),
             SpecialOperation::Map(map) => todo!(),
             SpecialOperation::Drop { rhs_iden } => todo!(),
@@ -288,7 +472,30 @@ pub fn evaluate<'a, TO: TextOwnership>(
                 identifier,
                 r#type,
                 expression,
-            } => todo!(),
+            } => {
+                let variable = match (r#type, expression) {
+                    (None, None) => Variable::Declared,
+                    (Some(r#type), None) => Variable::Typed(*r#type),
+                    (None, Some(expression)) => Variable::Valued(
+                        evaluate(expression, environment)?.convert_own_life_shared(),
+                    ),
+                    (Some(r#type), Some(expression)) => {
+                        let eval_value = evaluate(expression, environment)?;
+                        if eval_value.as_value_ref().r#type() == *r#type {
+                            Variable::Valued(eval_value.convert_own_life_shared())
+                        } else {
+                            return Err(EvaluationError::BindingError(
+                                BindingError::LetVariableDifferentType,
+                            ));
+                        }
+                    }
+                };
+                environment
+                    .bindings
+                    .declare(TO::as_str(identifier).to_owned(), variable)
+                    .map_err(|e| EvaluationError::BindingError(e))?;
+                Ok(EvalValue::Owned(Value::UNIT))
+            }
             SpecialOperation::Call { lhs, rhs_args } => todo!(),
             SpecialOperation::For { iterator, body } => todo!(),
             SpecialOperation::If(r#if) => todo!(),

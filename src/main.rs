@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use kemsh::{
-    evaluation::{egv, evaluate},
+    evaluation::{Environment, evaluate},
     lexer::{
         Lexer, StandardDelimiterLexer, StandardEscapedStringLexer, StandardLexemeLexer,
         StandardNumberLexer, StandardRawStringLexer, StandardShellLexer,
@@ -20,9 +20,10 @@ fn main() {
         StandardEscapedStringLexer,
         StandardShellLexer,
     >::new(inp.as_str());
+    let mut environment = Environment::new();
     for exp_res in Parser::new(lexer).into_iter() {
         if let Ok(exp) = exp_res {
-            println!("{:?}", evaluate(&exp, egv));
+            println!("{:?}", evaluate(&exp, &mut environment));
         } else {
             println!("{exp_res:#?}");
         }

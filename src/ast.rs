@@ -97,7 +97,10 @@ pub enum SpecialOperation<'a, TO: TextOwnership> {
         r#type: Option<ValueKind>,
         expression: Option<Box<AST<'a, TO>>>,
     },
-    Assign(()),
+    Assign {
+        identifier: TO::Text<'a>,
+        expression: Box<AST<'a, TO>>,
+    },
     Call {
         lhs: Box<AST<'a, TO>>,
         rhs_args: Vec<AST<'a, TO>>,
