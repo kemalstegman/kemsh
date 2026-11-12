@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ops::{Neg, Not},
+    process::Command,
     rc::Rc,
 };
 
@@ -557,7 +558,16 @@ pub fn evaluate<'a, TO: TextOwnership>(
             SpecialOperation::If(r#if) => todo!(),
             SpecialOperation::IfElse(if_else) => todo!(),
             SpecialOperation::Loop { body } => todo!(),
-            SpecialOperation::Shell(shell) => todo!(),
+            SpecialOperation::Shell(shell) => {
+                let shell = TO::as_str(shell);
+                match Command::new("sh").arg("-c").arg(shell).status() {
+                    Ok(_) => Ok(EvalValue::Owned(Value::UNIT)),
+                    Err(_) => Err(EvaluationError::G(format!(
+                        "shell command `{shell}` failed"
+                    ))),
+                }
+            }
+
             SpecialOperation::While { condition, body } => todo!(),
         },
     }
