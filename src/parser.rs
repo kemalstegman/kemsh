@@ -1,4 +1,4 @@
-use std::iter::FusedIterator;
+use std::{convert::Infallible, iter::FusedIterator};
 
 use crate::{
     ast::{AST, IOperation, POperation, SourceBorrowedText, SpecialOperation, ValueKind},
@@ -10,7 +10,7 @@ use crate::{
     npeekable::NPeekable,
 };
 
-type PToken<'a> = Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, (), &'a str>;
+type PToken<'a> = Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, Infallible, &'a str>;
 
 enum NullDenotation<'a> {
     I64(i64),
@@ -90,7 +90,7 @@ impl<'a> TryFrom<PToken<'a>> for NullDenotation<'a> {
                 Err(e) => Err(NullDenotationError::FloatError(e)),
             },
             Token::RawString(string) => Ok(NullDenotation::STRING(string)),
-            Token::EscapedString(()) => todo!(),
+            // Token::EscapedString(()) => todo!(),
             Token::Shell(shell) => Ok(NullDenotation::Shell(shell)),
             Token::Lexeme(Lexeme::LexUnit) => Ok(NullDenotation::UNIT),
             Token::Lexeme(Lexeme::LexNone) => Ok(NullDenotation::NONE),

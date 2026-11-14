@@ -2,10 +2,7 @@ use std::io::BufRead;
 
 use kemsh::{
     evaluation::{Environment, evaluate},
-    lexer::{
-        Lexer, LexerError, StandardDelimiterLexer, StandardEscapedStringLexer, StandardLexemeLexer,
-        StandardNumberLexer, StandardRawStringLexer, StandardShellLexer,
-    },
+    lexer::{Lexer, LexerError},
     parser::{Parser, ParserError},
 };
 
@@ -19,15 +16,7 @@ fn main() {
             if inp.len() == 0 {
                 break 'ml;
             }
-            for res in Parser::new(Lexer::<
-                StandardLexemeLexer,
-                StandardNumberLexer,
-                StandardDelimiterLexer,
-                StandardRawStringLexer,
-                StandardEscapedStringLexer,
-                StandardShellLexer,
-            >::new(inp.as_str()))
-            {
+            for res in Parser::new(Lexer::new(inp.as_str())) {
                 match res {
                     Err(ParserError::Incomplete | ParserError::Lexer(LexerError::Incomplete)) => {
                         continue 'rl;
@@ -41,16 +30,7 @@ fn main() {
             }
             break;
         }
-        for exp_res in Parser::new(Lexer::<
-            StandardLexemeLexer,
-            StandardNumberLexer,
-            StandardDelimiterLexer,
-            StandardRawStringLexer,
-            StandardEscapedStringLexer,
-            StandardShellLexer,
-        >::new(inp.as_str()))
-        .into_iter()
-        {
+        for exp_res in Parser::new(Lexer::new(inp.as_str())).into_iter() {
             if let Ok(exp) = exp_res {
                 println!("{:?}", evaluate(&exp, &mut environment));
             } else {

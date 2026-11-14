@@ -6,20 +6,11 @@ fn lex_vec(
     lexable: &str,
 ) -> Vec<
     Result<
-        Token<Lexeme<'_>, Number<'_>, Delimiter, &str, (), &str>,
-        LexerError<FatalLexerError<Infallible, Infallible, char, char, (), Infallible>>,
+        Token<Lexeme<'_>, Number<'_>, Delimiter, &str, Infallible, &str>,
+        LexerError<FatalLexerError<Infallible, Infallible, char, char, Infallible, Infallible>>,
     >,
 > {
-    Lexer::<
-        StandardLexemeLexer,
-        StandardNumberLexer,
-        StandardDelimiterLexer,
-        StandardRawStringLexer,
-        StandardEscapedStringLexer,
-        StandardShellLexer,
-    >::new(lexable)
-    .into_iter()
-    .collect()
+    Lexer::new(lexable).into_iter().collect()
 }
 
 #[test]
