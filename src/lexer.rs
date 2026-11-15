@@ -4,82 +4,22 @@ use std::{
     ops::ControlFlow::{Break, Continue},
 };
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum Lexeme<'a> {
-    LexLet,
-    LexUnit,
-    LexI64,
-    LexU64,
-    LexBool,
-    LexTrue,
-    LexFalse,
-    LexString,
-    LexList,
-    LexMap,
-    LexOption,
-    LexSome,
-    LexNone,
-    LexResult,
-    LexOk,
-    LexErr,
-    LexFn,
-    LexLoop,
-    LexWhile,
-    LexFor,
-    LexIf,
-    LexJcmd,
-    LexJhandle,
-    LexJexit,
-    LexProcess,
-    LexRun,
-    LexSpawn,
-    LexWait,
-    LexFhandle,
-    LexDrop,
-    LexCd,
-    Identifier(&'a str),
+pub use delimiter::Delimiter;
+pub use lexeme::Lexeme;
+
+use crate::lexer::escaped_string::lex_escaped_string;
+
+mod delimiter;
+mod escaped_string;
+mod lexeme;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LexerError<F> {
+    Incomplete,
+    Fatal(F),
 }
 
-impl<'a> From<&'a str> for Lexeme<'a> {
-    fn from(lexeme: &'a str) -> Self {
-        match lexeme {
-            "let" => Self::LexLet,
-            "unit" => Self::LexUnit,
-            "i64" => Self::LexI64,
-            "u64" => Self::LexU64,
-            "bool" => Self::LexBool,
-            "true" => Self::LexTrue,
-            "false" => Self::LexFalse,
-            "string" => Self::LexString,
-            "list" => Self::LexList,
-            "map" => Self::LexMap,
-            "option" => Self::LexOption,
-            "some" => Self::LexSome,
-            "none" => Self::LexNone,
-            "result" => Self::LexResult,
-            "ok" => Self::LexOk,
-            "err" => Self::LexErr,
-            "fn" => Self::LexFn,
-            "loop" => Self::LexLoop,
-            "while" => Self::LexWhile,
-            "for" => Self::LexFor,
-            "if" => Self::LexIf,
-            "jcmd" => Self::LexJcmd,
-            "jhandle" => Self::LexJhandle,
-            "jexit" => Self::LexJexit,
-            "process" => Self::LexProcess,
-            "run" => Self::LexRun,
-            "spawn" => Self::LexSpawn,
-            "wait" => Self::LexWait,
-            "fhandle" => Self::LexFhandle,
-            "drop" => Self::LexDrop,
-            "cd" => Self::LexCd,
-            lexeme => Self::Identifier(lexeme),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Number<'a> {
     Integer(&'a str),
     Signed(&'a str),
@@ -89,60 +29,23 @@ pub enum Number<'a> {
     Float(&'a str),
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum Delimiter {
-    // single character
-    OpenBrace,          // {
-    CloseBrace,         // }
-    OpenSquareBracket,  // [
-    CloseSquareBracket, // ]
-    OpenParenthesis,    // (
-    CloseParenthesis,   // )
-    OpenAngleBracket,   // <
-    CloseAngleBracket,  // >
-    Comma,              // ,
-    Period,             // .
-    Semicolon,          // ;
-    Colon,              // :
-    HyphenMinus,        // -
-    Plus,               // +
-    Equal,              // =
-    ForwardSlash,       // /
-    BackSlash,          // \
-    Asterisk,           // *
-    Bang,               // !
-    // multi-character
-    OpenBraceBracket,  // {[
-    CloseBracketBrace, // ]}
-    EqualEqual,        // ==
+#[derive(Debug, PartialEq, Eq)]
+pub enum Token<'a> {
+    Lexeme(Lexeme<'a>),
+    Number(Number<'a>),
+    Delimiter(Delimiter),
+    RawString(&'a str),
+    EscapedString(Infallible),
+    Shell(&'a str),
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub enum Token<L, N, D, RS, ES, SH> {
-    Lexeme(L),
-    Number(N),
-    Delimiter(D),
-    RawString(RS),
-    EscapedString(ES),
-    Shell(SH),
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum LexerError<F> {
-    Incomplete,
-    Fatal(F),
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum FatalLexerError<L, N, D, RS, ES, SH> {
+pub enum FatalLexerError {
     Incomplete,
     FirstCharUnexpected(char),
-    Lexeme(L),
-    Number(N),
-    Delimiter(D),
-    RawString(RS),
-    EscapedString(ES),
-    Shell(SH),
+    Delimiter(char),
+    RawString(char),
+    EscapedString(Infallible),
 }
 
 pub struct Lexer<'a> {
@@ -157,14 +60,7 @@ impl<'a> Lexer<'a> {
             is_last_tok_lexeme: false,
         }
     }
-    pub fn lex(
-        &mut self,
-    ) -> Option<
-        Result<
-            Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, Infallible, &'a str>,
-            LexerError<FatalLexerError<Infallible, Infallible, char, char, Infallible, Infallible>>,
-        >,
-    > {
+    pub fn lex(&mut self) -> Option<Result<Token<'a>, LexerError<FatalLexerError>>> {
         self.lexable = self.lexable.trim_ascii_start();
         if self.lexable.is_empty() {
             return None;
@@ -175,64 +71,36 @@ impl<'a> Lexer<'a> {
         }
         Some(ret)
     }
-    fn lex_nonempty(
-        &mut self,
-    ) -> Result<
-        Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, Infallible, &'a str>,
-        LexerError<FatalLexerError<Infallible, Infallible, char, char, Infallible, Infallible>>,
-    > {
+    fn lex_nonempty(&mut self) -> Result<Token<'a>, LexerError<FatalLexerError>> {
         let mut char_iter = self.lexable.chars();
         let is_last_tok_lexeme = self.is_last_tok_lexeme;
         self.is_last_tok_lexeme = false;
         match char_iter.next().unwrap() {
             'e' => match char_iter.next() {
-                Some('#') => match Self::lex_escaped_string(&mut self.lexable) {
-                    Ok(es) => Ok(Token::EscapedString(es)),
-                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                    Err(LexerError::Fatal(e)) => {
-                        Err(LexerError::Fatal(FatalLexerError::EscapedString(e)))
-                    }
-                },
-                Some('"') => match Self::lex_escaped_string(&mut self.lexable) {
-                    Ok(es) => Ok(Token::EscapedString(es)),
-                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                    Err(LexerError::Fatal(e)) => {
-                        Err(LexerError::Fatal(FatalLexerError::EscapedString(e)))
-                    }
-                },
-                None | Some(_) => match Self::lex_lexeme(&mut self.lexable, 'e'.len_utf8()) {
-                    Ok(l) => {
-                        self.is_last_tok_lexeme = true;
-                        Ok(Token::Lexeme(l))
-                    }
-                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                    Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Lexeme(e))),
-                },
+                Some('#') => lex_escaped_string(&mut self.lexable),
+                Some('"') => lex_escaped_string(&mut self.lexable),
+                None | Some(_) => {
+                    let l = Lexeme::lex_assume_first_byte(&mut self.lexable);
+                    self.is_last_tok_lexeme = true;
+                    Ok(Token::Lexeme(l))
+                }
             },
             ch @ '_' | ch if ch.is_ascii_alphabetic() => {
-                match Self::lex_lexeme(&mut self.lexable, 1) {
-                    Ok(l) => {
-                        self.is_last_tok_lexeme = true;
-                        Ok(Token::Lexeme(l))
-                    }
-                    Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                    Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Lexeme(e))),
-                }
+                let l = Lexeme::lex_assume_first_byte(&mut self.lexable);
+                self.is_last_tok_lexeme = true;
+                Ok(Token::Lexeme(l))
             }
             '0' => match Self::lex_number(&mut self.lexable, true) {
                 Ok(n) => Ok(Token::Number(n)),
                 Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Number(e))),
             },
             ch if ch.is_ascii_digit() => match Self::lex_number(&mut self.lexable, false) {
                 Ok(n) => Ok(Token::Number(n)),
                 Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Number(e))),
             },
             ':' if !is_last_tok_lexeme => match Self::lex_shell(&mut self.lexable) {
                 Ok(sh) => Ok(Token::Shell(sh)),
                 Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Shell(e))),
             },
             '#' => match Self::lex_raw_string(&mut self.lexable, 1, false) {
                 Ok(rs) => Ok(Token::RawString(rs)),
@@ -244,27 +112,102 @@ impl<'a> Lexer<'a> {
                 Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
                 Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::RawString(e))),
             },
-            ch if ch.is_ascii_punctuation() => match Self::lex_delimiter(&mut self.lexable) {
-                Ok(d) => Ok(Token::Delimiter(d)),
-                Err(LexerError::Incomplete) => Err(LexerError::Incomplete),
-                Err(LexerError::Fatal(e)) => Err(LexerError::Fatal(FatalLexerError::Delimiter(e))),
+            '{' => match char_iter.next() {
+                Some('[') => {
+                    self.lexable = &self.lexable[2..];
+                    Ok(Token::Delimiter(Delimiter::OpenBraceBracket))
+                }
+                Some(_) | None => {
+                    self.lexable = &self.lexable[1..];
+                    Ok(Token::Delimiter(Delimiter::OpenBrace))
+                }
             },
+            '}' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::CloseBrace))
+            }
+            '[' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::OpenSquareBracket))
+            }
+            ']' => match char_iter.next() {
+                Some('}') => {
+                    self.lexable = &self.lexable[2..];
+                    Ok(Token::Delimiter(Delimiter::CloseBracketBrace))
+                }
+                Some(_) | None => {
+                    self.lexable = &self.lexable[1..];
+                    Ok(Token::Delimiter(Delimiter::CloseSquareBracket))
+                }
+            },
+            '(' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::OpenParenthesis))
+            }
+            ')' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::CloseParenthesis))
+            }
+            '<' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::OpenAngleBracket))
+            }
+            '>' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::CloseAngleBracket))
+            }
+            ',' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Comma))
+            }
+            '.' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Period))
+            }
+            ';' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Semicolon))
+            }
+            ':' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Colon))
+            }
+            '-' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::HyphenMinus))
+            }
+            '+' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Plus))
+            }
+            '=' => match char_iter.next() {
+                Some('=') => {
+                    self.lexable = &self.lexable[2..];
+                    Ok(Token::Delimiter(Delimiter::EqualEqual))
+                }
+                Some(_) | None => {
+                    self.lexable = &self.lexable[1..];
+                    Ok(Token::Delimiter(Delimiter::Equal))
+                }
+            },
+            '/' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::ForwardSlash))
+            }
+            '\\' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::BackSlash))
+            }
+            '*' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Asterisk))
+            }
+            '!' => {
+                self.lexable = &self.lexable[1..];
+                Ok(Token::Delimiter(Delimiter::Bang))
+            }
             ch => Err(LexerError::Fatal(FatalLexerError::FirstCharUnexpected(ch))),
         }
-    }
-    fn lex_lexeme<'b>(
-        lexable: &mut &'b str,
-        known: usize,
-    ) -> Result<Lexeme<'b>, LexerError<Infallible>> {
-        let index = lexable[known..]
-            .char_indices()
-            .take_while(|&(_, ch)| ch == '_' || ch.is_ascii_alphanumeric())
-            .last()
-            .map(|(index, ch)| index + ch.len_utf8())
-            .unwrap_or(0);
-        let lexeme = &lexable[..known + index];
-        *lexable = &lexable[known + index..];
-        Ok(Lexeme::from(lexeme))
     }
     fn lex_number<'b>(
         lexable: &mut &'b str,
@@ -338,42 +281,6 @@ impl<'a> Lexer<'a> {
             Ok(Number::Integer(number_string))
         }
     }
-    fn lex_delimiter(lexable: &mut &str) -> Result<Delimiter, LexerError<char>> {
-        let mut char_iter = lexable.chars();
-        let (bytes, delimiter) = match char_iter.next().unwrap() {
-            '{' => match char_iter.next() {
-                Some('[') => (2, Delimiter::OpenBraceBracket),
-                Some(_) | None => (1, Delimiter::OpenBrace),
-            },
-            '}' => (1, Delimiter::CloseBrace),
-            '[' => (1, Delimiter::OpenSquareBracket),
-            ']' => match char_iter.next() {
-                Some('}') => (2, Delimiter::CloseBracketBrace),
-                Some(_) | None => (1, Delimiter::CloseSquareBracket),
-            },
-            '(' => (1, Delimiter::OpenParenthesis),
-            ')' => (1, Delimiter::CloseParenthesis),
-            '<' => (1, Delimiter::OpenAngleBracket),
-            '>' => (1, Delimiter::CloseAngleBracket),
-            ',' => (1, Delimiter::Comma),
-            '.' => (1, Delimiter::Period),
-            ';' => (1, Delimiter::Semicolon),
-            ':' => (1, Delimiter::Colon),
-            '-' => (1, Delimiter::HyphenMinus),
-            '+' => (1, Delimiter::Plus),
-            '=' => match char_iter.next() {
-                Some('=') => (2, Delimiter::EqualEqual),
-                Some(_) | None => (1, Delimiter::Equal),
-            },
-            '/' => (1, Delimiter::ForwardSlash),
-            '\\' => (1, Delimiter::BackSlash),
-            '*' => (1, Delimiter::Asterisk),
-            '!' => (1, Delimiter::Bang),
-            ch => return Err(LexerError::Fatal(ch)),
-        };
-        *lexable = &lexable[bytes..];
-        Ok(delimiter)
-    }
     fn lex_raw_string<'b>(
         lexable: &mut &'b str,
         mut prefix: usize,
@@ -420,9 +327,6 @@ impl<'a> Lexer<'a> {
         *lexable = &lexable[index..];
         Ok(raw_string)
     }
-    fn lex_escaped_string(_lexable: &mut &str) -> Result<Infallible, LexerError<Infallible>> {
-        todo!()
-    }
     fn lex_shell<'b>(lexable: &mut &'b str) -> Result<&'b str, LexerError<Infallible>> {
         match lexable[':'.len_utf8()..]
             .char_indices()
@@ -444,10 +348,7 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<
-        Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, Infallible, &'a str>,
-        LexerError<FatalLexerError<Infallible, Infallible, char, char, Infallible, Infallible>>,
-    >;
+    type Item = Result<Token<'a>, LexerError<FatalLexerError>>;
     fn next(&mut self) -> Option<Self::Item> {
         self.lex()
     }

@@ -10,7 +10,7 @@ use crate::{
     npeekable::NPeekable,
 };
 
-type PToken<'a> = Token<Lexeme<'a>, Number<'a>, Delimiter, &'a str, Infallible, &'a str>;
+type PToken<'a> = Token<'a>;
 
 enum NullDenotation<'a> {
     I64(i64),

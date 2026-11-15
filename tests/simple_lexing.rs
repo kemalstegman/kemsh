@@ -1,15 +1,6 @@
-use std::convert::Infallible;
-
 use kemsh::lexer::*;
 
-fn lex_vec(
-    lexable: &str,
-) -> Vec<
-    Result<
-        Token<Lexeme<'_>, Number<'_>, Delimiter, &str, Infallible, &str>,
-        LexerError<FatalLexerError<Infallible, Infallible, char, char, Infallible, Infallible>>,
-    >,
-> {
+fn lex_vec(lexable: &'_ str) -> Vec<Result<Token<'_>, LexerError<FatalLexerError>>> {
     Lexer::new(lexable).into_iter().collect()
 }
 
